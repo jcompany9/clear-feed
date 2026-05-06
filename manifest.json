@@ -1,0 +1,11 @@
+{
+  "name": "Clear Feed",
+  "short_name": "ClearFeed",
+  "description": "Short-form falling block clear puzzle MVP.",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#080b14",
+  "theme_color": "#080b14",
+  "icons": []
+}
