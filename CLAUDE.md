@@ -63,6 +63,25 @@ PWA 지원, Electron 데스크톱 빌드 옵션. **React/프레임워크 없이 
 - 빌드 검증: `npm run build` (tsc 타입체크 + vite 번들)
 - 개발 서버: `npm run dev`
 
+## 테스트 환경
+
+Vitest + happy-dom 기반. 순수 로직만 자동 테스트 (Canvas 렌더러는 수동).
+
+| 명령 | 동작 |
+|---|---|
+| `npm test` | 1회 실행 (CI/PR용) |
+| `npm run test:watch` | 파일 변경 시 재실행 |
+| `npm run test:ui` | 브라우저 UI (필요 시 `npm i -D @vitest/ui`) |
+| `npm run typecheck` | tsc만 (빌드 X) |
+
+테스트 파일 규칙: `src/**/*.test.ts`. 같은 디렉터리에 `<module>.test.ts` 형식.
+
+### 테스트 작성 시 주의
+
+- `Game` 인스턴스화 시 `SoundSystem`은 `FakeSound`로 대체 (happy-dom에 `AudioContext` 없음 — game.test.ts 참고)
+- `puzzleGenerator.ts`는 모듈 레벨 mutable 상태 (`lastTemplate`, `lastDifficulty`)가 있어 테스트 간 결정성이 깨질 수 있음 — 구조적 invariant만 검증
+- `localStorage`는 happy-dom 기본 제공. `beforeEach`에서 `localStorage.clear()` 권장
+
 ## 알려진 특이점
 
 - **록 딜레이 무한 회피 가능**: `touchingFloorAt`이 좌우 이동/회전 시

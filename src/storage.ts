@@ -28,9 +28,9 @@ const fallback: StoredState = {
 export function loadStorage(): StoredState {
   try {
     const raw = localStorage.getItem(KEY);
-    return raw ? { ...fallback, ...JSON.parse(raw) } : fallback;
+    return raw ? { ...fallback, ...JSON.parse(raw) } : { ...fallback };
   } catch {
-    return fallback;
+    return { ...fallback };
   }
 }
 
