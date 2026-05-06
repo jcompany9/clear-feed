@@ -1,0 +1,1 @@
+{"root":["./src/game.ts","./src/gametypes.ts","./src/input.ts","./src/main.ts","./src/pieces.ts","./src/puzzlegenerator.ts","./src/renderer.ts","./src/sound.ts","./src/storage.ts"],"version":"5.9.3"}
