@@ -1,11 +1,11 @@
 {
   "name": "Clear Feed",
-  "short_name": "ClearFeed",
-  "description": "Short-form falling block clear puzzle MVP.",
+  "short_name": "Clear Feed",
+  "description": "Tetris reels — swipe through endless puzzles",
   "start_url": ".",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#080b14",
-  "theme_color": "#080b14",
+  "background_color": "#f8e8c8",
+  "theme_color": "#2d2d3a",
   "icons": []
 }

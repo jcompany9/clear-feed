@@ -1,3 +1,99 @@
+:root {
+  /* === Game Boy Color 디자인 토큰 === */
+
+  /* 배경 */
+  --gb-bg-frame: #2d2d3a;
+  --gb-bg-screen: #f8e8c8;
+  --gb-bg-board: #fff5e0;
+  --gb-bg-panel: #faedd0;
+
+  /* 외곽선 / 텍스트 */
+  --gb-ink: #1a1a2e;
+  --gb-ink-soft: #4a4a5e;
+  --gb-ink-mute: #888899;
+
+  /* 악센트 */
+  --gb-accent: #d63031;
+  --gb-accent-soft: #ff7675;
+
+  /* 테트로미노 */
+  --gb-piece-i: #74b9ff;
+  --gb-piece-i-dark: #1e6ba8;
+  --gb-piece-o: #fdcb2e;
+  --gb-piece-o-dark: #a07a00;
+  --gb-piece-t: #a29bfe;
+  --gb-piece-t-dark: #5a51c4;
+  --gb-piece-s: #55efc4;
+  --gb-piece-s-dark: #1b9871;
+  --gb-piece-z: #fab1a0;
+  --gb-piece-z-dark: #c46556;
+  --gb-piece-l: #ffa657;
+  --gb-piece-l-dark: #b56611;
+  --gb-piece-j: #6c5ce7;
+  --gb-piece-j-dark: #3a2faa;
+  --gb-piece-garbage: #888899;
+  --gb-piece-garbage-dark: #4a4a5e;
+
+  --gb-ghost: rgba(26, 26, 46, 0.15);
+  --gb-ghost-line: rgba(26, 26, 46, 0.35);
+
+  /* 시맨틱 */
+  --gb-success: #00b894;
+  --gb-warning: #fdcb6e;
+  --gb-danger: #d63031;
+  --gb-info: #74b9ff;
+
+  /* 폰트 */
+  --gb-font-pixel: "Press Start 2P", "VT323", "Pixelify Sans", monospace;
+  --gb-font-mono: "JetBrains Mono", "SF Mono", "Courier New", monospace;
+  --gb-font-system: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  /* 폰트 사이즈 */
+  --text-pixel-xs: 8px;
+  --text-pixel-sm: 10px;
+  --text-pixel-md: 12px;
+  --text-pixel-lg: 16px;
+  --text-pixel-xl: 20px;
+  --text-pixel-hero: 24px;
+  --text-mono-md: 14px;
+  --text-mono-lg: 18px;
+  --text-mono-xl: 24px;
+
+  /* 외곽선 */
+  --gb-border-w: 2px;
+  --gb-border-w-thin: 1px;
+  --gb-border-w-thick: 3px;
+  --gb-border-color: var(--gb-ink);
+
+  /* 모서리 */
+  --gb-radius-none: 0;
+  --gb-radius-sm: 2px;
+  --gb-radius-md: 4px;
+
+  /* 픽셀 그림자 */
+  --gb-shadow-pixel: 2px 2px 0 var(--gb-ink);
+  --gb-shadow-pixel-sm: 1px 1px 0 var(--gb-ink);
+  --gb-shadow-pixel-press: 0 0 0 var(--gb-ink);
+
+  /* 애니메이션 */
+  --gb-ease-step-3: steps(3, end);
+  --gb-ease-step-5: steps(5, end);
+  --gb-ease-step-8: steps(8, end);
+  --gb-duration-fast: 80ms;
+  --gb-duration-normal: 150ms;
+  --gb-duration-slow: 300ms;
+
+  /* 안전 영역 */
+  --sat: env(safe-area-inset-top);
+  --sab: env(safe-area-inset-bottom);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --gb-bg-frame: #0a0a14;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -8,8 +104,8 @@ body {
   height: 100%;
   margin: 0;
   overflow: hidden;
-  background: #080b14;
-  color: #eef7ff;
+  background: var(--gb-bg-frame);
+  color: var(--gb-ink);
   overscroll-behavior: none;
   touch-action: none;
   user-select: none;
@@ -17,21 +113,19 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-html {
-  --sat: env(safe-area-inset-top);
-  --sab: env(safe-area-inset-bottom);
-}
-
 body {
   position: fixed;
   inset: 0;
   height: 100dvh;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--gb-font-pixel);
 }
 
 canvas {
   display: block;
   width: 100vw;
   height: 100dvh;
-  background: #080b14;
+  background: var(--gb-bg-frame);
+  /* 픽셀 폰트 렌더링: 게임보이 톤 */
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
