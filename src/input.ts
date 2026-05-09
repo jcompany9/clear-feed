@@ -6,6 +6,7 @@ interface TouchState {
   x: number;
   y: number;
   startedAt: number;
+  trail: Array<{ x: number; y: number }>;
 }
 
 export class InputController {
@@ -25,17 +26,6 @@ export class InputController {
     window.addEventListener("keydown", this.onKey);
   }
 
-  private onMove = (event: PointerEvent): void => {
-    // 호버 미리보기 — 마우스가 누르지 않은 상태에서도 동작 (마우스 전용 효과)
-    if (event.pointerType === "touch" && !this.touch) return;
-    const col = this.renderer.screenToColumn(event.clientX, event.clientY);
-    this.game.setHoverColumn(col);
-  };
-
-  private onLeave = (): void => {
-    this.game.setHoverColumn(null);
-  };
-
   private onDown = (event: PointerEvent): void => {
     event.preventDefault();
     this.canvas.setPointerCapture(event.pointerId);
@@ -44,7 +34,30 @@ export class InputController {
       x: event.clientX,
       y: event.clientY,
       startedAt: performance.now(),
+      trail: [{ x: event.clientX, y: event.clientY }],
     };
+    // 터치 시작 시점에 호버 미리보기도 시작 (모바일에서 미리보기 노출)
+    if (this.game.snapshot.mode === "planning") {
+      const col = this.renderer.screenToColumn(event.clientX, event.clientY);
+      this.game.setHoverColumn(col);
+      this.game.setTouchTrail(this.touch.trail);
+    }
+  };
+
+  private onMove = (event: PointerEvent): void => {
+    if (event.pointerType === "touch" && !this.touch) return;
+    const col = this.renderer.screenToColumn(event.clientX, event.clientY);
+    this.game.setHoverColumn(col);
+    if (this.touch && this.touch.id === event.pointerId) {
+      const last = this.touch.trail[this.touch.trail.length - 1];
+      const dx = event.clientX - last.x;
+      const dy = event.clientY - last.y;
+      // 4px 이상 이동했을 때만 점 추가 (밀도 조절)
+      if (dx * dx + dy * dy >= 16) {
+        this.touch.trail.push({ x: event.clientX, y: event.clientY });
+        this.game.setTouchTrail(this.touch.trail);
+      }
+    }
   };
 
   private onUp = (event: PointerEvent): void => {
@@ -59,24 +72,28 @@ export class InputController {
     const isTap = Math.abs(dx) < 24 && Math.abs(dy) < 24 && elapsed < 320;
 
     if (mode === "planning") {
-      // Planning: 탭 = 핸드 카드(피스 선택) 또는 보드 컬럼(배치)
-      // 위로 스와이프 = 포기, 아래로 스와이프 = 마지막 placement undo
-      if (vertical && dy < -52) {
-        this.game.abandon();
-      } else if (vertical && dy > 52) {
-        this.game.undoLastPlacement();
-      } else if (isTap) {
-        // 핸드 우선 검사
+      // 큰 세로 스와이프 = 제스처 (포기/undo)
+      if (vertical && Math.abs(dy) > 52) {
+        if (dy < 0) this.game.abandon();
+        else this.game.undoLastPlacement();
+      } else {
+        // 핸드 카드 우선 검사
         const handIdx = this.renderer.screenToHandIndex(event.clientX, event.clientY);
         if (handIdx !== null) {
           this.game.selectPiece(handIdx);
         } else {
+          // 어디서 떼든 (드래그 끝 위치) 그 컬럼에 배치
           const col = this.renderer.screenToColumn(event.clientX, event.clientY);
           if (col !== null) {
             this.game.placeAt(col);
           }
         }
       }
+      // 터치 종료 시 trail/hover 정리 (모바일은 미리보기 사라져야 함)
+      if (event.pointerType === "touch") {
+        this.game.setHoverColumn(null);
+      }
+      this.game.setTouchTrail([]);
     } else if (horizontal && dx < -70) {
       this.game.challengeFeed();
     } else if (horizontal && dx > 70) {
@@ -97,7 +114,13 @@ export class InputController {
   private onCancel = (event: PointerEvent): void => {
     if (this.touch?.id === event.pointerId) {
       this.touch = null;
+      this.game.setTouchTrail([]);
+      this.game.setHoverColumn(null);
     }
+  };
+
+  private onLeave = (): void => {
+    this.game.setHoverColumn(null);
   };
 
   private onKey = (event: KeyboardEvent): void => {

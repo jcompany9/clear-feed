@@ -70,10 +70,35 @@ export class Renderer {
     } else {
       this.renderBoard(snapshot, board, now, true);
     }
+    this.renderTouchTrail(snapshot);
     this.renderGestureHints(snapshot);
     this.renderOverlays(snapshot, now);
     this.renderToast(snapshot, now);
     this.renderScanlines();
+  }
+
+  private renderTouchTrail(snapshot: GameSnapshot): void {
+    const trail = snapshot.animation.touchTrail;
+    if (!trail || trail.length < 2) return;
+    this.ctx.save();
+    // 점들을 잇는 선 (얇은 ink-soft 색)
+    this.ctx.strokeStyle = resolveCssVar(TOKENS.inkSoft);
+    this.ctx.lineWidth = 2;
+    this.ctx.globalAlpha = 0.5;
+    this.ctx.beginPath();
+    this.ctx.moveTo(trail[0].x, trail[0].y);
+    for (let i = 1; i < trail.length; i += 1) {
+      this.ctx.lineTo(trail[i].x, trail[i].y);
+    }
+    this.ctx.stroke();
+    // 끝점 강조 (현재 손가락 위치)
+    const last = trail[trail.length - 1];
+    this.ctx.globalAlpha = 0.9;
+    this.ctx.fillStyle = resolveCssVar(TOKENS.accent);
+    this.ctx.beginPath();
+    this.ctx.arc(last.x, last.y, 5, 0, Math.PI * 2);
+    this.ctx.fill();
+    this.ctx.restore();
   }
 
   private renderToast(snapshot: GameSnapshot, now: number): void {

@@ -35,6 +35,7 @@ export class Game {
     feedSlide: 0,
     feedSlideX: 0,
     feedShake: 0,
+    touchTrail: [],
   };
 
   constructor(sound: SoundSystem, initialSeed?: number) {
@@ -78,6 +79,10 @@ export class Game {
       return;
     }
     this.hoverColumn = col;
+  }
+
+  setTouchTrail(points: Array<{ x: number; y: number }>): void {
+    this.animation.touchTrail = points;
   }
 
   /** hoverColumn에 현재 선택 피스를 떨어뜨렸을 때 안착 셀들. 없으면 null. */

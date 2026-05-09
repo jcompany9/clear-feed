@@ -46,6 +46,7 @@ export interface AnimationState {
   feedSlide: number;
   feedSlideX: number;
   feedShake: number;
+  touchTrail: Array<{ x: number; y: number }>;  // 터치 드래그 궤적 (화면 좌표)
   previousPuzzle?: Puzzle;
   previousGrid?: Cell[][];
 }
