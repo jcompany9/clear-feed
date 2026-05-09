@@ -524,11 +524,11 @@ export class Renderer {
     this.ctx.lineWidth = 1;
     this.line(screen.x + 12, top + 44, screen.x + screen.width - 12, top + 44);
 
-    // 미션 라벨 (퍼즐별 구체 수치)
-    this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
+    // 미션 라벨 (퍼즐별 구체 수치) — JetBrains Mono Bold 11px (헤더 숫자와 동일 폰트)
+    this.ctx.font = `bold 11px ${FONT_MONO_BASE}`;
     this.ctx.textAlign = "center";
     this.ctx.fillStyle = resolveCssVar(TOKENS.accent);
-    this.ctx.fillText(this.computeMissionText(snapshot), screen.x + screen.width / 2, top + 56);
+    this.ctx.fillText(this.computeMissionText(snapshot), screen.x + screen.width / 2, top + 58);
     this.ctx.textAlign = "left";
   }
 

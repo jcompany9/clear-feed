@@ -23,15 +23,46 @@ export function createFeedPuzzle(seed: number, challenge = false): Puzzle {
   const queue = buildQueue(rng, template, targetLines, movesLimit, difficulty);
   const grid = buildGrid(rng, template, targetLines, difficulty, queue[0]);
 
+  // 산수 보정: (cells + 4*queueLen)이 10의 배수가 되도록 큐 길이 조정.
+  // 안 맞으면 "EMPTY THE BOARD" 폴백이 표시되어 사용자 혼란 → 항상 깔끔한 N줄 클리어 미션이 되도록.
+  const adjusted = adjustQueueForMath(grid, queue, movesLimit, rng);
+
   return {
     seed,
     template,
     difficulty,
     grid,
-    queue,
+    queue: adjusted.queue,
     targetLines,
-    movesLimit,
+    movesLimit: adjusted.length,
   };
+}
+
+function adjustQueueForMath(grid: Cell[][], queue: PieceKind[], originalLimit: number, rng: Rng): { queue: PieceKind[]; length: number } {
+  let cellCount = 0;
+  for (const row of grid) for (const c of row) if (c !== null && c !== "wall") cellCount += 1;
+  // (cells + 4q) % 10 === 0 만족하는 q 후보 (1~10 범위, 본 게임 분량)
+  const candidates: number[] = [];
+  for (let q = 1; q <= 10; q += 1) {
+    if ((cellCount + q * 4) % 10 === 0) candidates.push(q);
+  }
+  if (candidates.length === 0) {
+    // 셀이 홀수 등 어떤 q로도 안 떨어지면 그대로 (드문 케이스)
+    return { queue, length: originalLimit };
+  }
+  // 원래 movesLimit과 가장 가까운 후보 선택 (사용자 체감 난이도 유지)
+  let best = candidates[0];
+  for (const c of candidates) {
+    if (Math.abs(c - originalLimit) < Math.abs(best - originalLimit)) best = c;
+  }
+  // 큐 길이를 best로 맞춤 (자르거나 늘림)
+  const adjusted = [...queue];
+  if (adjusted.length > best) {
+    adjusted.length = best;
+  } else {
+    while (adjusted.length < best) adjusted.push(rng.pick(PIECES));
+  }
+  return { queue: adjusted, length: best };
 }
 
 export function createInitialFeed(count: number, seed: number): Puzzle[] {
