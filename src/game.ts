@@ -231,7 +231,7 @@ export class Game {
 
   private clearLines(now: number): void {
     const rows = this.grid
-      .map((row, y) => (row.every(Boolean) ? y : -1))
+      .map((row, y) => (row.every(Boolean) && !row.some((cell) => cell === "wall") ? y : -1))
       .filter((row) => row >= 0);
     if (!rows.length) return;
     this.animation.clearingRows = rows;

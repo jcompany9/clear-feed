@@ -5,7 +5,7 @@ export type PieceKind = "I" | "O" | "T" | "L" | "J" | "S" | "Z";
 export type Difficulty = "Easy" | "Normal" | "Challenge";
 export type GameMode = "feed" | "playing" | "clear" | "failed";
 
-export type Cell = PieceKind | "garbage" | null;
+export type Cell = PieceKind | "garbage" | "wall" | null;
 
 export interface Point {
   x: number;

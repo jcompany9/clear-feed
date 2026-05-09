@@ -82,6 +82,23 @@ Vitest + happy-dom 기반. 순수 로직만 자동 테스트 (Canvas 렌더러�
 - `puzzleGenerator.ts`는 모듈 레벨 mutable 상태 (`lastTemplate`, `lastDifficulty`)가 있어 테스트 간 결정성이 깨질 수 있음 — 구조적 invariant만 검증
 - `localStorage`는 happy-dom 기본 제공. `beforeEach`에서 `localStorage.clear()` 권장
 
+## 게임 모드: Sandwich
+
+현재 게임의 정체성은 **샌드위치 모드** — 위쪽에 천장(고정 벽 + 구멍 패턴)이 추가된 테트리스 변종. 향후 UGC(사용자 배치 공유)와 결합해 "Tetris Reels" 컨셉 완성 예정.
+
+### 데이터 모델
+- `Cell = PieceKind | "garbage" | "wall" | null` — `"wall"`이 천장 셀
+- 천장은 `puzzleGenerator.addCeiling()`이 `y=0`에 생성 (구멍 ≥3칸 보장)
+- 난이도별 벽 비율: Easy 0.45, Normal 0.55, Challenge 0.65
+
+### 클리어 룰
+- `Game.clearLines()`는 벽이 있는 줄을 **클리어 후보에서 제외** — 천장은 영구 벽
+- 그 외엔 기존 라인 클리어 룰 그대로
+
+### 렌더
+- 벽 셀: `--gb-ink-soft` 평평 단색 (3D 입체감 없음, 일반 피스와 명확히 구분)
+- 일반 피스: 기존 그대로 (highlight + shadow inset)
+
 ## 알려진 특이점
 
 - **록 딜레이 무한 회피 가능**: `touchingFloorAt`이 좌우 이동/회전 시

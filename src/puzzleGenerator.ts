@@ -90,7 +90,40 @@ function buildGrid(rng: Rng, template: TemplateName, targetLines: number, diffic
   carveByTemplate(grid, template, opener);
   makeTargetRows(grid, rng, targetLines, template, opener);
   cleanTopPressure(grid);
+  addCeiling(grid, rng, difficulty);
   return grid;
+}
+
+function addCeiling(grid: Cell[][], rng: Rng, difficulty: Difficulty): void {
+  const wallProbability = difficulty === "Easy" ? 0.45 : difficulty === "Normal" ? 0.55 : 0.65;
+  const minGapWidth = 3; // 피스가 통과할 수 있도록 최소 3칸 연속 빈 공간 보장
+  const ceilingRow = 0;
+  const cells: Cell[] = Array.from({ length: COLS }, () =>
+    rng.next() < wallProbability ? "wall" : null,
+  );
+  ensureGap(cells, minGapWidth, rng);
+  grid[ceilingRow] = cells;
+}
+
+function ensureGap(cells: Cell[], minWidth: number, rng: Rng): void {
+  const hasGap = (arr: Cell[]): boolean => {
+    let run = 0;
+    for (const c of arr) {
+      if (c === null) {
+        run += 1;
+        if (run >= minWidth) return true;
+      } else {
+        run = 0;
+      }
+    }
+    return false;
+  };
+  if (hasGap(cells)) return;
+  // 강제로 한 구간을 비움
+  const start = rng.int(0, COLS - minWidth);
+  for (let i = 0; i < minWidth; i += 1) {
+    cells[start + i] = null;
+  }
 }
 
 function makeTargetRows(grid: Cell[][], rng: Rng, targetLines: number, template: TemplateName, opener: PieceKind): void {

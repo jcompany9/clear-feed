@@ -2,7 +2,7 @@ import type { PieceKind } from "./gameTypes";
 
 type ColorPair = { fill: string; stroke: string };
 
-export const PIECE_COLORS: Record<PieceKind | "garbage", ColorPair> = {
+export const PIECE_COLORS: Record<PieceKind | "garbage" | "wall", ColorPair> = {
   I: { fill: "var(--gb-piece-i)", stroke: "var(--gb-piece-i-dark)" },
   O: { fill: "var(--gb-piece-o)", stroke: "var(--gb-piece-o-dark)" },
   T: { fill: "var(--gb-piece-t)", stroke: "var(--gb-piece-t-dark)" },
@@ -11,6 +11,7 @@ export const PIECE_COLORS: Record<PieceKind | "garbage", ColorPair> = {
   L: { fill: "var(--gb-piece-l)", stroke: "var(--gb-piece-l-dark)" },
   J: { fill: "var(--gb-piece-j)", stroke: "var(--gb-piece-j-dark)" },
   garbage: { fill: "var(--gb-piece-garbage)", stroke: "var(--gb-piece-garbage-dark)" },
+  wall: { fill: "var(--gb-ink-soft)", stroke: "var(--gb-ink)" },
 };
 
 export const GHOST_COLOR: ColorPair = {

@@ -241,18 +241,29 @@ export class Renderer {
     size: number,
     x: number,
     y: number,
-    kind: PieceKind | "garbage",
+    kind: PieceKind | "garbage" | "wall",
     alpha: number,
     landed: boolean,
   ): void {
     if (y < 0) return;
     const px = ox + x * size;
-    const py = oy + y * size + (landed ? 1 : 0);
+    const py = oy + y * size + (landed && kind !== "wall" ? 1 : 0);
     const colors = PIECE_COLORS[kind];
     this.ctx.globalAlpha = alpha;
 
     const fill = resolveCssVar(colors.fill);
     const stroke = resolveCssVar(colors.stroke);
+
+    if (kind === "wall") {
+      // 벽: 평평한 단단한 블록 (3D 효과 없음, 외곽선만)
+      this.ctx.fillStyle = fill;
+      this.ctx.fillRect(px, py, size, size);
+      this.ctx.strokeStyle = stroke;
+      this.ctx.lineWidth = 1;
+      this.ctx.strokeRect(px + 0.5, py + 0.5, size - 1, size - 1);
+      this.ctx.globalAlpha = 1;
+      return;
+    }
 
     // 본체
     this.ctx.fillStyle = fill;
