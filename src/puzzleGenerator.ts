@@ -27,9 +27,9 @@ export function createFeedPuzzle(seed: number, challenge = false): Puzzle {
     return buildConstructedNormal(seed, rng);
   }
 
-  // 90% random + 유일해 필터. 2 회 시도 (gen time < 1s 목표).
-  if (!SKIP_SOLVER_VERIFY && rng.next() < 0.9) {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+  // 95% random + 유일해 필터. 5 회 시도 — Worker 풀이 백그라운드로 채워주므로 시간 비용 OK.
+  if (!SKIP_SOLVER_VERIFY && rng.next() < 0.95) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
       const built = buildOnePuzzle(seed, false, rng);
       if (built.verified) return built.puzzle;
     }
@@ -267,7 +267,9 @@ function buildOnePuzzle(seed: number, challenge: boolean, rng: Rng): { puzzle: P
   const intendedTarget = initialDifficulty === "Easy" ? 1 : initialDifficulty === "Normal" ? rng.pick([1, 2, 2, 3]) : rng.pick([2, 3]);
   const movesLimit = initialDifficulty === "Easy" ? intendedTarget + 3 : initialDifficulty === "Normal" ? intendedTarget + 3 : intendedTarget + 2;
   const queue = buildQueue(rng, template, intendedTarget, movesLimit, initialDifficulty);
-  const grid = buildGrid(rng, template, intendedTarget, initialDifficulty, queue[0]);
+  // 다양한 grid builder 무작위 선택 — 매 퍼즐마다 시각적 구조가 다름
+  const builder = pickGridBuilder(rng);
+  const grid = builder(rng, template, intendedTarget, initialDifficulty, queue[0]);
 
   const adjusted = adjustQueueForMath(grid, queue, movesLimit, rng);
 
@@ -282,23 +284,19 @@ function buildOnePuzzle(seed: number, challenge: boolean, rng: Rng): { puzzle: P
   if (!SKIP_SOLVER_VERIFY) {
     const solvableQueue = ensureSolvable(grid, adjusted.queue, adjusted.length, targetLines, rng);
     if (solvableQueue) {
-      // 유일해 필터: solutionCount > 3 면 거부 (퍼즐답지 않은 너그러운 퍼즐)
-      // 1~3 경로만 통과 → 진짜 사고 필요
+      // 엄격 필터: solutionCount ≤ 2 만 통과. 3+ = 너그러운 퍼즐 거부.
       const probe: Puzzle = {
         seed: 0, template: "near-line", difficulty: initialDifficulty,
         grid, queue: solvableQueue, targetLines, movesLimit: solvableQueue.length,
       };
-      const analysis = analyze(probe, 4, 6000);  // cap=4 (4개 찾으면 reject)
+      const analysis = analyze(probe, 3, 6000);  // cap=3 (3+ 찾으면 reject)
       if (!analysis.truncated && analysis.solutionCount > 0 && !analysis.capped) {
-        // 합격: solutionCount in [1, 3]
+        // 합격: solutionCount in [1, 2]
         finalQueue = solvableQueue;
         verified = true;
-        // 난이도: 1 solution = Challenge, 2 = Normal, 3 = Easy
-        difficulty = analysis.solutionCount === 1 ? "Challenge"
-          : analysis.solutionCount === 2 ? "Normal"
-          : "Easy";
+        // 1 solution = Challenge, 2 = Normal
+        difficulty = analysis.solutionCount === 1 ? "Challenge" : "Normal";
       }
-      // capped (4+ solutions): 거부 → verified false → 호출측 재시도
     }
   }
 
@@ -521,6 +519,93 @@ function cleanTopPressure(grid: Cell[][]): void {
   for (let y = 0; y < 8; y += 1) {
     for (let x = 0; x < COLS; x += 1) grid[y][x] = null;
   }
+}
+
+type GridBuilder = (
+  rng: Rng,
+  template: TemplateName,
+  targetLines: number,
+  difficulty: Difficulty,
+  opener: PieceKind,
+) => Cell[][];
+
+/**
+ * 무작위 grid builder 선택 — 매 퍼즐마다 시각적 구조가 달라지도록.
+ * Default = 기존 buildGrid (density 그라데이션 + pillars)
+ * MultiRegion = 좌/우 두 영역, 가운데 빈 컬럼 (두 영역 따로 사고)
+ * TallWell = 깊은 1-셀 우물, I 수직 강제
+ * MixedGapWidths = 행마다 다른 gap 너비 (피스 종류 자연스레 다양)
+ */
+function pickGridBuilder(rng: Rng): GridBuilder {
+  const r = rng.next();
+  if (r < 0.4) return buildGrid;                  // 40% — 기본 (random density)
+  if (r < 0.65) return buildGridMultiRegion;      // 25% — 좌/우 분리
+  if (r < 0.85) return buildGridMixedGapWidths;   // 20% — 행별 gap 변화
+  return buildGridTallWell;                        // 15% — 깊은 우물
+}
+
+/** 좌/우 두 영역 + 가운데 빈 통로 — 각 영역이 따로 클리어돼야 함 */
+function buildGridMultiRegion(rng: Rng, template: TemplateName, targetLines: number, difficulty: Difficulty, opener: PieceKind): Cell[][] {
+  const grid = emptyGrid();
+  const baseRows = difficulty === "Easy" ? 6 : difficulty === "Normal" ? 8 : 10;
+  const start = 20 - baseRows;
+  // 가운데 통로: 2-3 컬럼 폭 빈 공간 (피스가 양쪽 영역으로 떨어질 수 있게)
+  const middleStart = rng.int(3, 5);
+  const middleEnd = middleStart + rng.int(1, 2);  // 통로 폭 2-3
+  const density = difficulty === "Easy" ? 0.55 : difficulty === "Normal" ? 0.7 : 0.8;
+
+  for (let y = start; y < 20; y += 1) {
+    for (let x = 0; x < COLS; x += 1) {
+      if (x >= middleStart && x <= middleEnd) continue;  // 가운데 통로 비움
+      if (rng.next() < density) grid[y][x] = randomBlock(rng);
+    }
+  }
+  // 바닥 행은 거의 다 채움 (라인 클리어 setup)
+  for (let x = 0; x < COLS; x += 1) {
+    if (x >= middleStart && x <= middleEnd) continue;
+    grid[19][x] = randomBlock(rng);
+  }
+  cleanTopPressure(grid);
+  void template; void targetLines; void opener;
+  return grid;
+}
+
+/** 깊은 1-셀 우물 — I 수직(rot 1) 회전으로만 클리어 가능. 주변은 거의 꽉 참. */
+function buildGridTallWell(rng: Rng, template: TemplateName, targetLines: number, difficulty: Difficulty, opener: PieceKind): Cell[][] {
+  const grid = emptyGrid();
+  const wellDepth = difficulty === "Easy" ? rng.int(3, 4) : difficulty === "Normal" ? rng.int(4, 5) : rng.int(5, 6);
+  const wellCol = rng.int(0, COLS - 1);
+  const start = 20 - wellDepth;
+
+  for (let y = start; y < 20; y += 1) {
+    for (let x = 0; x < COLS; x += 1) {
+      if (x === wellCol) continue;  // 우물 col 비움
+      grid[y][x] = randomBlock(rng);
+    }
+  }
+  cleanTopPressure(grid);
+  void template; void targetLines; void opener;
+  return grid;
+}
+
+/** 행마다 다른 gap 너비 — row 19 = 4-gap, row 18 = 3-gap, row 17 = 2-gap 등 혼재 */
+function buildGridMixedGapWidths(rng: Rng, template: TemplateName, targetLines: number, difficulty: Difficulty, opener: PieceKind): Cell[][] {
+  const grid = emptyGrid();
+  const numRows = difficulty === "Easy" ? rng.int(3, 4) : difficulty === "Normal" ? rng.int(4, 5) : rng.int(5, 6);
+  const widths = [2, 3, 4];
+
+  for (let r = 0; r < numRows; r += 1) {
+    const y = 19 - r;
+    const width = widths[rng.int(0, widths.length - 1)];
+    const gapStart = rng.int(0, COLS - width);
+    for (let x = 0; x < COLS; x += 1) {
+      if (x >= gapStart && x < gapStart + width) continue;
+      grid[y][x] = randomBlock(rng);
+    }
+  }
+  cleanTopPressure(grid);
+  void template; void targetLines; void opener;
+  return grid;
 }
 
 function countNonWallCells(grid: Cell[][]): number {

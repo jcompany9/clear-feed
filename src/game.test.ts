@@ -31,9 +31,9 @@ describe("Game — initial state", () => {
     expect(game.snapshot.mode).toBe("feed");
   });
 
-  it("provides 6 initial feed puzzles", () => {
+  it("provides initial feed puzzles (>= 1, worker pool fills more in background)", () => {
     const game = makeGame();
-    expect(game.snapshot.feed).toHaveLength(6);
+    expect(game.snapshot.feed.length).toBeGreaterThanOrEqual(1);
     expect(game.snapshot.feedIndex).toBe(0);
   });
 

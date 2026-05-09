@@ -13,6 +13,7 @@ import {
 } from "./gameTypes";
 import { absoluteCells, createPiece, rotatePiece } from "./pieces";
 import { createFeedPuzzle, createInitialFeed } from "./puzzleGenerator";
+import { getPuzzlePool } from "./puzzlePool";
 import { findSolvableQueue } from "./solver";
 import SolverWorker from "./solverWorker?worker";
 import { encodePuzzle } from "./encoding";
@@ -86,10 +87,12 @@ export class Game {
     const seedBase = initialSeed ?? saved.lastSeed + 17;
     if (initialPuzzle) {
       // ?p=...로 받은 사용자 퍼즐을 첫 슬롯에, 그 뒤로 시드 기반 퍼즐 추가 (피드 다양성)
-      const more = createInitialFeed(5, seedBase).map((puzzle) => ({ puzzle, cleared: false }));
+      // 시작 시 1개만 sync 생성 (앱 부팅 빠르게), 나머지는 워커 풀에서 백그라운드 충전
+      const more = createInitialFeed(1, seedBase).map((puzzle) => ({ puzzle, cleared: false }));
       this.feed = [{ puzzle: initialPuzzle, cleared: false }, ...more];
     } else {
-      this.feed = createInitialFeed(6, seedBase).map((puzzle) => ({ puzzle, cleared: false }));
+      // 시작 시 2개만 sync, 나머지는 워커가 채움
+      this.feed = createInitialFeed(2, seedBase).map((puzzle) => ({ puzzle, cleared: false }));
     }
     this.grid = cloneGrid(this.activePuzzle.grid);
   }
@@ -480,8 +483,13 @@ export class Game {
   shuffleFeed(): void {
     if (this.mode !== "feed") return;
     this.captureFeedTransition();
-    const seed = this.activePuzzle.seed + 91 + this.feedIndex * 31 + Math.floor(Math.random() * 1000);
-    this.feed.splice(this.feedIndex + 1, 0, { puzzle: createFeedPuzzle(seed, false), cleared: false });
+    // 백그라운드 풀에서 즉시 pop, 비어있으면 sync 폴백 (희귀)
+    const pooled = getPuzzlePool().pop();
+    const puzzle = pooled ?? createFeedPuzzle(
+      this.activePuzzle.seed + 91 + this.feedIndex * 31 + Math.floor(Math.random() * 1000),
+      false,
+    );
+    this.feed.splice(this.feedIndex + 1, 0, { puzzle, cleared: false });
     this.feedIndex += 1;
     this.attempts = 0;
     this.linesCleared = 0;
@@ -803,8 +811,12 @@ export class Game {
   }
 
   private appendPuzzle(): void {
-    const seed = this.feed[this.feed.length - 1].puzzle.seed + 101 + this.feed.length * 7;
-    this.feed.push({ puzzle: createFeedPuzzle(seed, false), cleared: false });
+    const pooled = getPuzzlePool().pop();
+    const puzzle = pooled ?? createFeedPuzzle(
+      this.feed[this.feed.length - 1].puzzle.seed + 101 + this.feed.length * 7,
+      false,
+    );
+    this.feed.push({ puzzle, cleared: false });
     this.feed = this.feed.slice(-12);
     this.feedIndex = Math.min(this.feedIndex, this.feed.length - 1);
   }
