@@ -696,13 +696,7 @@ export class Game {
   }
 
   copyShareUrl(): void {
-    const puzzle = this.activePuzzle;
-    const base = `${window.location.origin}${window.location.pathname}`;
-    // seed === 0 = 사용자 만든 퍼즐 (인코딩) / 그 외 = 시드 (짧은 URL)
-    const url =
-      puzzle.seed === 0
-        ? `${base}?p=${encodePuzzle(puzzle.grid, puzzle.queue)}`
-        : `${base}?seed=${puzzle.seed}`;
+    const url = this.buildShareUrl();
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(url).then(
         () => this.flashToast("LINK COPIED"),
@@ -711,6 +705,48 @@ export class Game {
     } else {
       this.flashToast("COPY UNAVAILABLE");
     }
+  }
+
+  /** 결과 공유 그리드 (Wordle 식) — 클립보드에 복사 */
+  copyResultShare(): void {
+    const text = this.buildResultShareText();
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(
+        () => this.flashToast("RESULT COPIED"),
+        () => this.flashToast("COPY FAILED"),
+      );
+    } else {
+      this.flashToast("COPY UNAVAILABLE");
+    }
+  }
+
+  private buildShareUrl(): string {
+    const puzzle = this.activePuzzle;
+    const base = `${window.location.origin}${window.location.pathname}`;
+    if (puzzle.seed === 0) {
+      // 사용자 만든 퍼즐 (인코딩)
+      return `${base}?p=${encodePuzzle(puzzle.grid, puzzle.queue)}`;
+    }
+    // 데일리 시드 (YYYYMMDD 형식)이면 ?d=YYYY-MM-DD로
+    const dailyStr = seedToDate(puzzle.seed);
+    if (dailyStr) return `${base}?d=${dailyStr}`;
+    return `${base}?seed=${puzzle.seed}`;
+  }
+
+  private buildResultShareText(): string {
+    const puzzle = this.activePuzzle;
+    const stars = this.attempts === 1 ? "★★★" : this.attempts === 2 ? "★★" : "★";
+    const result = this.attempts === 1 ? "HOLE IN ONE" : `SOLVED IN ${this.attempts}`;
+    const initialCells = puzzle.grid.flat().filter((c) => c !== null && c !== "wall").length;
+    const queueLen = puzzle.queue.length;
+    const lines = (initialCells + queueLen * 4) % 10 === 0 ? (initialCells + queueLen * 4) / 10 : 0;
+    const missionStr = lines > 0
+      ? `${queueLen} PIECES → ${lines === 4 ? "TETRIS! " : ""}${lines} LINES`
+      : `${queueLen} PIECES`;
+    const dailyStr = seedToDate(puzzle.seed);
+    const title = dailyStr ? `Clear Feed Daily ${dailyStr}` : "Clear Feed";
+    const url = this.buildShareUrl();
+    return [title, `${stars} ${result}`, missionStr, "", url].join("\n");
   }
 
   setTouchTrail(points: Array<{ x: number; y: number }>): void {
@@ -745,4 +781,14 @@ export class Game {
 
 function cloneGrid(grid: Cell[][]): Cell[][] {
   return grid.map((row) => [...row]);
+}
+
+/** 시드가 YYYYMMDD 형식이면 'YYYY-MM-DD' 문자열로, 아니면 null */
+function seedToDate(seed: number): string | null {
+  if (seed < 19000101 || seed > 99991231) return null;
+  const yyyy = Math.floor(seed / 10000);
+  const mm = Math.floor((seed % 10000) / 100);
+  const dd = seed % 100;
+  if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+  return `${yyyy}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
 }

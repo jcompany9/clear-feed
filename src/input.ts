@@ -165,7 +165,14 @@ export class InputController {
     } else if (mode === "failed") {
       if (isTap) this.game.retry();
     } else if (mode === "clear") {
-      if (isTap) this.game.advance();
+      if (isTap) {
+        // SHARE 버튼 우선 검사
+        if (this.renderer.isShareResultButton(event.clientX, event.clientY)) {
+          this.game.copyResultShare();
+        } else {
+          this.game.advance();
+        }
+      }
     } else if (isTap) {
       this.game.startPlanning();
     }

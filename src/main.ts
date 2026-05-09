@@ -24,7 +24,7 @@ function parseUrl(): { seed?: number; puzzle?: Puzzle } {
     const decoded = decodePuzzle(p);
     if (decoded && decoded.queue.length > 0) {
       const puzzle: Puzzle = {
-        seed: 0, // 0 = 사용자 생성 (시드 없음)
+        seed: 0,
         template: "near-line",
         difficulty: "Normal",
         grid: decoded.grid,
@@ -36,6 +36,13 @@ function parseUrl(): { seed?: number; puzzle?: Puzzle } {
     }
   }
 
+  // ?d=YYYY-MM-DD 또는 ?d=today — 데일리 챌린지 (날짜 → 시드)
+  const daily = params.get("d");
+  if (daily) {
+    const seed = dateToSeed(daily === "today" ? formatToday() : daily);
+    if (seed !== null) return { seed };
+  }
+
   // ?seed=<숫자> — 시드 기반 자동 생성 퍼즐
   const seed = params.get("seed");
   if (seed) {
@@ -44,6 +51,22 @@ function parseUrl(): { seed?: number; puzzle?: Puzzle } {
   }
 
   return {};
+}
+
+/** YYYY-MM-DD 문자열을 시드 숫자로 변환 (YYYYMMDD). 잘못된 형식이면 null. */
+function dateToSeed(dateStr: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (!m) return null;
+  const seed = Number.parseInt(`${m[1]}${m[2]}${m[3]}`, 10);
+  return Number.isFinite(seed) ? seed : null;
+}
+
+function formatToday(): string {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 function applyViewportVars(): void {

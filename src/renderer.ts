@@ -24,6 +24,8 @@ export class Renderer {
   // 버튼 클릭 영역
   private editButton: { x: number; y: number; w: number; h: number } | null = null;
   private finishButton: { x: number; y: number; w: number; h: number } | null = null;
+  // 클리어 오버레이 SHARE 버튼
+  private shareResultButton: { x: number; y: number; w: number; h: number } | null = null;
   // 에디터 도구 박스 클릭 영역
   private editToolBoxes: Array<{ x: number; y: number; w: number; h: number; tool: "cell" | PieceKind }> = [];
   // 에디터 회전 버튼 클릭 영역
@@ -72,6 +74,13 @@ export class Renderer {
   isFinishButton(screenX: number, screenY: number): boolean {
     if (!this.finishButton) return false;
     const b = this.finishButton;
+    return screenX >= b.x && screenX <= b.x + b.w && screenY >= b.y && screenY <= b.y + b.h;
+  }
+
+  /** 화면 좌표가 SHARE RESULT 버튼 위에 있으면 true */
+  isShareResultButton(screenX: number, screenY: number): boolean {
+    if (!this.shareResultButton) return false;
+    const b = this.shareResultButton;
     return screenX >= b.x && screenX <= b.x + b.w && screenY >= b.y && screenY <= b.y + b.h;
   }
 
@@ -1044,9 +1053,9 @@ export class Renderer {
     this.ctx.fillRect(0, 0, this.width, this.height);
     this.ctx.globalAlpha = alpha;
 
-    // 모달 박스
+    // 모달 박스 (clear 모드는 SHARE 버튼 자리만큼 더 크게)
     const boxW = Math.min(this.width - 64, 320);
-    const boxH = 140;
+    const boxH = snapshot.mode === "clear" ? 170 : 140;
     const boxX = (this.width - boxW) / 2;
     const boxY = this.height * 0.4;
 
@@ -1067,14 +1076,33 @@ export class Renderer {
           : resolveCssVar(TOKENS.ink);
     this.ctx.fillText(snapshot.animation.message, this.width / 2, boxY + 50);
 
+    // SHARE 버튼 (clear 모드에서만)
+    this.shareResultButton = null;
+    if (snapshot.mode === "clear") {
+      const shareW = 100;
+      const shareH = 28;
+      const shareX = this.width / 2 - shareW / 2;
+      const shareY = boxY + 76;
+      this.shareResultButton = { x: shareX, y: shareY, w: shareW, h: shareH };
+      this.ctx.fillStyle = resolveCssVar(TOKENS.success);
+      this.ctx.fillRect(shareX, shareY, shareW, shareH);
+      this.pixelStroke(shareX, shareY, shareW, shareH, 2, resolveCssVar(TOKENS.ink));
+      this.ctx.font = `bold 10px ${FONT_PIXEL_BASE}`;
+      this.ctx.textAlign = "center";
+      this.ctx.textBaseline = "middle";
+      this.ctx.fillStyle = resolveCssVar(TOKENS.bgPanel);
+      this.ctx.fillText("📋 SHARE", shareX + shareW / 2, shareY + shareH / 2);
+    }
+
     // 서브 텍스트
+    this.ctx.textBaseline = "alphabetic";
     this.ctx.font = `10px ${FONT_PIXEL_BASE}`;
     this.ctx.fillStyle = resolveCssVar(TOKENS.inkSoft);
     const subText =
       snapshot.mode === "clear"
         ? "TAP NEXT PUZZLE"
         : "TAP TRY AGAIN";
-    this.ctx.fillText(subText, this.width / 2, boxY + 100);
+    this.ctx.fillText(subText, this.width / 2, boxY + 120);
 
     this.ctx.globalAlpha = 1;
     this.ctx.textAlign = "left";
