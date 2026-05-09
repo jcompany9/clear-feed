@@ -19,6 +19,9 @@ export class Renderer {
   private boardOx = 0;
   private boardOy = 0;
   private boardCell = 0;
+  // 버튼 클릭 영역
+  private editButton: { x: number; y: number; w: number; h: number } | null = null;
+  private finishButton: { x: number; y: number; w: number; h: number } | null = null;
 
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d", { alpha: false });
@@ -48,6 +51,20 @@ export class Renderer {
   /** 보드 셀 한 칸 픽셀 크기 (드래그 픽셀 → 컬럼 변환용) */
   getCellSize(): number {
     return this.boardCell;
+  }
+
+  /** 화면 좌표가 EDIT 버튼 위에 있으면 true */
+  isEditButton(screenX: number, screenY: number): boolean {
+    if (!this.editButton) return false;
+    const b = this.editButton;
+    return screenX >= b.x && screenX <= b.x + b.w && screenY >= b.y && screenY <= b.y + b.h;
+  }
+
+  /** 화면 좌표가 FINISH 버튼 위에 있으면 true */
+  isFinishButton(screenX: number, screenY: number): boolean {
+    if (!this.finishButton) return false;
+    const b = this.finishButton;
+    return screenX >= b.x && screenX <= b.x + b.w && screenY >= b.y && screenY <= b.y + b.h;
   }
 
   resize(): void {
@@ -442,6 +459,9 @@ export class Renderer {
   }
 
   private renderGestureHints(snapshot: GameSnapshot): void {
+    this.editButton = null;
+    this.finishButton = null;
+
     if (snapshot.mode === "planning") {
       const screen = this.screenRect();
       this.ctx.save();
@@ -458,51 +478,81 @@ export class Renderer {
       this.ctx.textAlign = "left";
       return;
     }
+
     if (snapshot.mode === "editing") {
       const screen = this.screenRect();
-      this.ctx.save();
-      this.ctx.textAlign = "center";
-      this.ctx.font = `9px ${FONT_PIXEL_BASE}`;
-      // 상태 안내 (가장 위에)
+
+      // 상태 라벨 (배너)
       let statusLine = "TAP CELL TO TOGGLE";
       let statusColor: string = TOKENS.inkSoft;
       if (snapshot.editStatus === "ready") {
-        statusLine = `READY — ${snapshot.editFoundQueue?.join(" ")} — ENTER TO PLAY`;
+        statusLine = `READY — ${snapshot.editFoundQueue?.join(" ")}`;
         statusColor = TOKENS.success;
       } else if (snapshot.editStatus === "no-solution") {
-        statusLine = "NO SOLUTION — EDIT BOARD OR LENGTH";
+        statusLine = "NO SOLUTION — EDIT BOARD";
         statusColor = TOKENS.danger;
       }
-      this.ctx.fillStyle = resolveCssVar(statusColor);
-      this.ctx.fillText(statusLine, screen.x + screen.width / 2, screen.y + screen.height - 32);
 
-      // 키 안내
-      this.ctx.globalAlpha = 0.6;
+      this.ctx.save();
+      this.ctx.textAlign = "center";
+      this.ctx.font = `9px ${FONT_PIXEL_BASE}`;
+      this.ctx.fillStyle = resolveCssVar(statusColor);
+      this.ctx.fillText(statusLine, screen.x + screen.width / 2, screen.y + screen.height - 60);
+
+      // FINISH/GENERATE 버튼 (mode-aware)
+      const btnW = 160;
+      const btnH = 34;
+      const btnX = screen.x + (screen.width - btnW) / 2;
+      const btnY = screen.y + screen.height - btnH - 18;
+      this.finishButton = { x: btnX, y: btnY, w: btnW, h: btnH };
+
+      const ready = snapshot.editStatus === "ready";
+      this.ctx.fillStyle = ready ? resolveCssVar(TOKENS.success) : resolveCssVar(TOKENS.accent);
+      this.ctx.fillRect(btnX, btnY, btnW, btnH);
+      this.pixelStroke(btnX, btnY, btnW, btnH, 2, resolveCssVar(TOKENS.ink));
+      this.ctx.font = `bold 12px ${FONT_PIXEL_BASE}`;
+      this.ctx.textBaseline = "middle";
+      this.ctx.fillStyle = resolveCssVar(TOKENS.bgPanel);
+      const label = ready ? "▶ FINISH" : "GENERATE";
+      this.ctx.fillText(label, btnX + btnW / 2, btnY + btnH / 2);
+
+      // 키보드 단축키 힌트 (작게)
+      this.ctx.globalAlpha = 0.5;
+      this.ctx.textBaseline = "alphabetic";
       this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
       this.ctx.fillStyle = resolveCssVar(TOKENS.inkMute);
       this.ctx.fillText(
-        "+/- LENGTH   G GENERATE   ESC EXIT",
+        "+/- LENGTH   ESC EXIT",
         screen.x + screen.width / 2,
-        screen.y + screen.height - 14,
+        btnY - 22,
       );
       this.ctx.restore();
       this.ctx.textAlign = "left";
       return;
     }
+
     if (snapshot.mode === "feed") {
       const screen = this.screenRect();
+
+      // EDIT 버튼 (하단 우측)
+      const btnW = 90;
+      const btnH = 28;
+      const btnX = screen.x + screen.width - btnW - 12;
+      const btnY = screen.y + screen.height - btnH - 8;
+      this.editButton = { x: btnX, y: btnY, w: btnW, h: btnH };
+
       this.ctx.save();
-      this.ctx.globalAlpha = 0.5;
+      this.ctx.fillStyle = resolveCssVar(TOKENS.bgPanel);
+      this.ctx.fillRect(btnX, btnY, btnW, btnH);
+      this.pixelStroke(btnX, btnY, btnW, btnH, 2, resolveCssVar(TOKENS.ink));
+      this.ctx.font = `bold 10px ${FONT_PIXEL_BASE}`;
       this.ctx.textAlign = "center";
-      this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
-      this.ctx.fillStyle = resolveCssVar(TOKENS.inkMute);
-      this.ctx.fillText(
-        "E EDIT YOUR OWN PUZZLE",
-        screen.x + screen.width / 2,
-        screen.y + screen.height - 14,
-      );
+      this.ctx.textBaseline = "middle";
+      this.ctx.fillStyle = resolveCssVar(TOKENS.ink);
+      this.ctx.fillText("✎ EDIT", btnX + btnW / 2, btnY + btnH / 2);
       this.ctx.restore();
       this.ctx.textAlign = "left";
+      this.ctx.textBaseline = "alphabetic";
     }
   }
 

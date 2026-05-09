@@ -85,12 +85,23 @@ export class InputController {
       // horizontal drag: 이미 onMove에서 setPieceColumn으로 처리됨
       this.game.setTouchTrail([]);
     } else if (mode === "editing") {
-      // 에디터: 셀 탭 = 토글
       if (isTap) {
-        const cell = this.renderer.screenToCell(event.clientX, event.clientY);
-        if (cell) this.game.editToggleCell(cell.col, cell.row);
+        // FINISH 버튼 우선
+        if (this.renderer.isFinishButton(event.clientX, event.clientY)) {
+          if (this.game.snapshot.editStatus === "ready") {
+            this.game.playEditedPuzzle();
+          } else {
+            this.game.generateEditedPuzzle();
+          }
+        } else {
+          // 그 외 = 셀 토글
+          const cell = this.renderer.screenToCell(event.clientX, event.clientY);
+          if (cell) this.game.editToggleCell(cell.col, cell.row);
+        }
       }
       this.game.setTouchTrail([]);
+    } else if (mode === "feed" && isTap && this.renderer.isEditButton(event.clientX, event.clientY)) {
+      this.game.enterEditor();
     } else if (horizontal && dx < -70) {
       this.game.challengeFeed();
     } else if (horizontal && dx > 70) {
