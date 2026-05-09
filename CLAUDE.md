@@ -82,6 +82,35 @@ Vitest + happy-dom 기반. 순수 로직만 자동 테스트 (Canvas 렌더러�
 - `puzzleGenerator.ts`는 모듈 레벨 mutable 상태 (`lastTemplate`, `lastDifficulty`)가 있어 테스트 간 결정성이 깨질 수 있음 — 구조적 invariant만 검증
 - `localStorage`는 happy-dom 기본 제공. `beforeEach`에서 `localStorage.clear()` 권장
 
+## Solver (UGC 검증용)
+
+`src/solver.ts` — DFS + 메모이제이션 + 회전 대칭 활용 brute-force 솔버.
+
+### API
+```ts
+solve(puzzle: Puzzle, maxNodes = 200000): SolverResult
+```
+- `solvable: boolean` — true면 풀이 가능 (확정), false면 불가능 또는 timeout
+- `truncated: boolean` — true면 maxNodes 초과 (결과 신뢰 X)
+- `steps?: SolverStep[]` — solvable일 때 풀이 시퀀스 (queueIndex, kind, x, rotation)
+- `nodesExplored`, `timeMs` — 디버깅/성능 측정
+
+### 사용 예
+- UGC 에디터에서 사용자 퍼즐 검증 (공유 전에 solve 호출)
+- 자동 생성 퍼즐 필터링 (createFeedPuzzle 결과 중 unsolvable 제외)
+- 힌트 시스템 (다음 한 수만 노출)
+
+### 핵심 최적화
+- 피스별 회전 수: O=1, I/S/Z=2, T/L/J=4 (대칭)
+- 유효 x 범위 사전 계산 (회전된 모양의 minRel/maxRel 기반)
+- `(grid_string, queueIndex)` 캐싱으로 중복 상태 스킵
+- `wall` 셀 처리: 벽 있는 줄은 영원히 클리어 불가
+
+### 성능
+- 5~7 피스 퍼즐: 평균 50~300ms
+- maxNodes 기본값 200000 충분
+- 위험: 매우 깊은 검색 트리 (8+ 피스, 빈 보드)는 truncated 반환
+
 ## URL 공유 (UGC Phase 1)
 
 - `?seed=N` 파라미터로 특정 퍼즐을 첫 피드 위치에 로드
