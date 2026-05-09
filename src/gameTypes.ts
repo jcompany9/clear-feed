@@ -67,6 +67,7 @@ export interface GameSnapshot {
   attempts: number;                  // 현재 퍼즐 시도 횟수 (실패 누적)
   queueIndex: number;                // 다음 떨어뜨릴 큐 인덱스
   ghostCells: Point[] | null;        // 현재 피스가 떨어질 안착 위치
+  pressedControl: string | null;     // 현재 누름 중인 컨트롤 버튼 ("left"|"right"|"rotate"|"down"|"hardDrop")
 
   // Editing 모드 전용 (UGC 에디터)
   editGrid: Cell[][];                // 사용자 디자인 보드

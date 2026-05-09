@@ -48,6 +48,7 @@ export class Game {
   private queueIndex = 0;
   private history: PlacementSnapshot[] = [];
   private attempts = 0;
+  private pressedControl: string | null = null;
   private editGrid: Cell[][] = [];
   private editQueueLength = 5;
   private editFoundQueue: PieceKind[] | null = null;
@@ -111,6 +112,7 @@ export class Game {
       attempts: this.attempts,
       queueIndex: this.queueIndex,
       ghostCells: this.computeGhost(),
+      pressedControl: this.pressedControl,
       editGrid: this.editGrid.map((row) => [...row]),
       editQueueLength: this.editQueueLength,
       editFoundQueue: this.editFoundQueue ? [...this.editFoundQueue] : null,
@@ -751,6 +753,11 @@ export class Game {
 
   setTouchTrail(points: Array<{ x: number; y: number }>): void {
     this.animation.touchTrail = points;
+  }
+
+  /** 컨트롤 버튼 누름 상태 (시각 피드백) */
+  setPressedControl(action: string | null): void {
+    this.pressedControl = action;
   }
 
   private flashToast(msg: string): void {

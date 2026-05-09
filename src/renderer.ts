@@ -132,7 +132,7 @@ export class Renderer {
     if (snapshot.mode === "planning") {
       const missionGap = 18;
       const queueColumnWidth = 56;
-      const controlsHeight = 130;   // 콘솔 분리형: 2-row × 2-cluster
+      const controlsHeight = 76;    // 단일 행 + 드롭 섀도우 여백
       board = new DOMRect(
         board.x,
         board.y + missionGap,
@@ -231,59 +231,100 @@ export class Renderer {
     }
   }
 
-  /** Planning 모드 컨트롤 — 콘솔 분리형 (좌: 방향, 우: 액션)
+  /** Planning 모드 컨트롤 — 단일 행 5-button (옵션 1: 현재 유지 + 시각 폴리시)
    *
-   *      좌측 클러스터              우측 클러스터
-   *         [↻]                       [▼]
-   *       [◀] [▶]                    [⏬]
+   *  [◀] [↻] [▶] [▼] [⏬]
    *
-   *  좌: 회전 + 좌우 이동 (가장 빈번한 동작 — 왼손 엄지)
-   *  우: 슬로우 드롭 + 빠른 잠금 (마무리 — 오른손 엄지)
+   *  픽셀 아이콘 (◀ ▶ ▼ ⏬) + Unicode (↻)
+   *  드롭 섀도우 (2px ink 오프셋) + 누름 효과 (active 시 2px translate, 섀도우 사라짐)
    */
   private renderControlButtons(snapshot: GameSnapshot, y: number): void {
     this.controlButtons = [];
     const screen = this.screenRect();
     const gap = 6;
-    const margin = 12;
-    // 화면 폭에 맞춰 버튼 사이즈 결정 (좌 2개 가로 + 우 1개 + margin/gap)
-    const computed = Math.floor((screen.width - 2 * margin - 3 * gap) / 4);
-    const boxSize = Math.max(44, Math.min(60, computed));
+    const usableW = screen.width - 24;
+    const computed = Math.floor((usableW - 4 * gap) / 5);
+    const boxSize = Math.max(40, Math.min(60, computed));
+    const totalW = 5 * boxSize + 4 * gap;
+    const startX = screen.x + (screen.width - totalW) / 2;
 
-    // ── 좌측 클러스터 (방향) ──
-    const leftClusterW = 2 * boxSize + gap;
-    const leftBaseX = screen.x + margin;
-    // 회전 (위, 좌측 클러스터 가운데 정렬)
-    const rotateX = leftBaseX + (leftClusterW - boxSize) / 2;
-    this.controlButtons.push({ x: rotateX, y, w: boxSize, h: boxSize, action: "rotate" });
-    this.drawControlButtonStyled(rotateX, y, boxSize, "↻", TOKENS.bgPanel, TOKENS.ink);
-    // ◀ ▶ (아래)
-    const moveY = y + boxSize + gap;
-    this.controlButtons.push({ x: leftBaseX, y: moveY, w: boxSize, h: boxSize, action: "left" });
-    this.drawControlButtonStyled(leftBaseX, moveY, boxSize, "◀", TOKENS.bgPanel, TOKENS.ink);
-    const rightX = leftBaseX + boxSize + gap;
-    this.controlButtons.push({ x: rightX, y: moveY, w: boxSize, h: boxSize, action: "right" });
-    this.drawControlButtonStyled(rightX, moveY, boxSize, "▶", TOKENS.bgPanel, TOKENS.ink);
-
-    // ── 우측 클러스터 (액션) ──
     const downReadyToLock = !!snapshot.current && this.isPieceOnFloor(snapshot);
-    const rightBaseX = screen.x + screen.width - margin - boxSize;
-    // 슬로우 드롭 ▼ / ⏎ (위)
-    this.controlButtons.push({ x: rightBaseX, y, w: boxSize, h: boxSize, action: "down" });
-    this.drawControlButtonStyled(
-      rightBaseX,
-      y,
-      boxSize,
-      downReadyToLock ? "⏎" : "▼",
-      downReadyToLock ? TOKENS.success : TOKENS.bgPanel,
-      downReadyToLock ? TOKENS.bgPanel : TOKENS.ink,
-    );
-    // 하드 드롭 ⏬ (아래) — 픽셀 아트 + 흑백 인버스
-    const hardDropY = y + boxSize + gap;
-    this.controlButtons.push({ x: rightBaseX, y: hardDropY, w: boxSize, h: boxSize, action: "hardDrop" });
-    this.drawControlButtonWithPixel(rightBaseX, hardDropY, boxSize, Renderer.PIXEL_ARROW_DOWN, TOKENS.ink, TOKENS.bgPanel);
+    type ButtonSpec = {
+      action: PlanningControl;
+      bgToken: string;
+      fgToken: string;
+      pattern?: number[][];
+      icon?: string;
+    };
+    const layout: ButtonSpec[] = [
+      { action: "left",     bgToken: TOKENS.bgPanel, fgToken: TOKENS.ink, pattern: Renderer.PIXEL_ARROW_LEFT },
+      { action: "rotate",   bgToken: TOKENS.bgPanel, fgToken: TOKENS.ink, icon: "↻" },
+      { action: "right",    bgToken: TOKENS.bgPanel, fgToken: TOKENS.ink, pattern: Renderer.PIXEL_ARROW_RIGHT },
+      {
+        action: "down",
+        bgToken: downReadyToLock ? TOKENS.success : TOKENS.bgPanel,
+        fgToken: downReadyToLock ? TOKENS.bgPanel : TOKENS.ink,
+        icon: downReadyToLock ? "⏎" : undefined,
+        pattern: downReadyToLock ? undefined : Renderer.PIXEL_ARROW_DOWN,
+      },
+      { action: "hardDrop", bgToken: TOKENS.ink, fgToken: TOKENS.bgPanel, pattern: Renderer.PIXEL_ARROW_DOWN },
+    ];
+
+    for (let i = 0; i < layout.length; i += 1) {
+      const b = layout[i];
+      const bx = startX + i * (boxSize + gap);
+      this.controlButtons.push({ x: bx, y, w: boxSize, h: boxSize, action: b.action });
+      const pressed = snapshot.pressedControl === b.action;
+      this.drawPolishedControlButton(bx, y, boxSize, b, pressed);
+    }
   }
 
-  /** 픽셀 아트 아래 화살표 패턴 (7x7) — GB Color 톤에 맞는 두꺼운 삼각형 */
+  /** 시각 폴리시 적용 버튼: 드롭 섀도우 + 누름 효과 + 픽셀/유니코드 아이콘 모두 지원 */
+  private drawPolishedControlButton(
+    x: number,
+    y: number,
+    size: number,
+    spec: { bgToken: string; fgToken: string; pattern?: number[][]; icon?: string },
+    pressed: boolean,
+  ): void {
+    const offset = pressed ? 2 : 0;
+    // 드롭 섀도우 (눌리지 않은 상태에만)
+    if (!pressed) {
+      this.ctx.fillStyle = resolveCssVar(TOKENS.ink);
+      this.ctx.fillRect(x + 2, y + 2, size, size);
+    }
+    // 본체 (눌리면 2px 아래/오른쪽으로 이동, 섀도우 자리에 들어감)
+    const bx = x + offset;
+    const by = y + offset;
+    this.ctx.fillStyle = resolveCssVar(spec.bgToken);
+    this.ctx.fillRect(bx, by, size, size);
+
+    // 위/왼쪽 하이라이트
+    this.ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+    this.ctx.fillRect(bx + 1, by + 1, size - 2, 2);
+    this.ctx.fillRect(bx + 1, by + 1, 2, size - 2);
+    // 아래/오른쪽 음영
+    this.ctx.fillStyle = "rgba(0, 0, 0, 0.22)";
+    this.ctx.fillRect(bx + 1, by + size - 3, size - 2, 2);
+    this.ctx.fillRect(bx + size - 3, by + 1, 2, size - 2);
+    // 외곽선
+    this.pixelStroke(bx, by, size, size, 2, resolveCssVar(TOKENS.ink));
+
+    // 아이콘 (픽셀 패턴 우선, 없으면 유니코드)
+    if (spec.pattern) {
+      this.drawPixelPattern(bx, by, size, spec.pattern, resolveCssVar(spec.fgToken));
+    } else if (spec.icon) {
+      this.ctx.font = `bold ${Math.floor(size * 0.46)}px ${FONT_MONO_BASE}`;
+      this.ctx.textAlign = "center";
+      this.ctx.textBaseline = "middle";
+      this.ctx.fillStyle = resolveCssVar(spec.fgToken);
+      this.ctx.fillText(spec.icon, bx + size / 2, by + size / 2 + 1);
+      this.ctx.textAlign = "left";
+      this.ctx.textBaseline = "alphabetic";
+    }
+  }
+
+  /** 픽셀 아트 아래 화살표 패턴 (7x7) */
   private static PIXEL_ARROW_DOWN: number[][] = [
     [1, 1, 1, 1, 1, 1, 1],
     [1, 1, 1, 1, 1, 1, 1],
@@ -292,6 +333,28 @@ export class Renderer {
     [0, 0, 1, 1, 1, 0, 0],
     [0, 0, 1, 1, 1, 0, 0],
     [0, 0, 0, 1, 0, 0, 0],
+  ];
+
+  /** 픽셀 아트 왼쪽 화살표 (7x7) — 끝(apex)이 왼쪽, 베이스가 오른쪽 */
+  private static PIXEL_ARROW_LEFT: number[][] = [
+    [0, 0, 0, 1, 1, 1, 1],
+    [0, 0, 1, 1, 1, 1, 1],
+    [0, 1, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 1],
+    [0, 1, 1, 1, 1, 1, 1],
+    [0, 0, 1, 1, 1, 1, 1],
+    [0, 0, 0, 1, 1, 1, 1],
+  ];
+
+  /** 픽셀 아트 오른쪽 화살표 (7x7) — LEFT의 좌우 미러 */
+  private static PIXEL_ARROW_RIGHT: number[][] = [
+    [1, 1, 1, 1, 0, 0, 0],
+    [1, 1, 1, 1, 1, 0, 0],
+    [1, 1, 1, 1, 1, 1, 0],
+    [1, 1, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 0],
+    [1, 1, 1, 1, 1, 0, 0],
+    [1, 1, 1, 1, 0, 0, 0],
   ];
 
   private drawPixelPattern(x: number, y: number, buttonSize: number, pattern: number[][], color: string): void {
@@ -317,48 +380,6 @@ export class Renderer {
     }
   }
 
-  private drawControlButtonWithPixel(x: number, y: number, size: number, pattern: number[][], bgToken: string, fgToken: string): void {
-    // 3D 픽셀 버튼 베이스 (drawControlButtonStyled와 동일)
-    this.ctx.fillStyle = resolveCssVar(bgToken);
-    this.ctx.fillRect(x, y, size, size);
-    this.ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
-    this.ctx.fillRect(x + 1, y + 1, size - 2, 2);
-    this.ctx.fillRect(x + 1, y + 1, 2, size - 2);
-    this.ctx.fillStyle = "rgba(0, 0, 0, 0.22)";
-    this.ctx.fillRect(x + 1, y + size - 3, size - 2, 2);
-    this.ctx.fillRect(x + size - 3, y + 1, 2, size - 2);
-    this.pixelStroke(x, y, size, size, 2, resolveCssVar(TOKENS.ink));
-    // 픽셀 아트 아이콘
-    this.drawPixelPattern(x, y, size, pattern, resolveCssVar(fgToken));
-  }
-
-  private drawControlButtonStyled(x: number, y: number, size: number, icon: string, bgToken: string, fgToken: string): void {
-    // 베이스 채움
-    this.ctx.fillStyle = resolveCssVar(bgToken);
-    this.ctx.fillRect(x, y, size, size);
-
-    // 위/왼쪽 하이라이트 (1~2px) — 테트로미노 셀과 동일한 3D 픽셀 효과
-    this.ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
-    this.ctx.fillRect(x + 1, y + 1, size - 2, 2);  // 윗선
-    this.ctx.fillRect(x + 1, y + 1, 2, size - 2);  // 좌선
-
-    // 아래/오른쪽 음영 (1~2px)
-    this.ctx.fillStyle = "rgba(0, 0, 0, 0.22)";
-    this.ctx.fillRect(x + 1, y + size - 3, size - 2, 2);  // 아래선
-    this.ctx.fillRect(x + size - 3, y + 1, 2, size - 2);  // 우선
-
-    // 외곽선 (2px ink)
-    this.pixelStroke(x, y, size, size, 2, resolveCssVar(TOKENS.ink));
-
-    // 아이콘 — JetBrains Mono Bold (헤더 숫자와 통일)
-    this.ctx.font = `bold ${Math.floor(size * 0.46)}px ${FONT_MONO_BASE}`;
-    this.ctx.textAlign = "center";
-    this.ctx.textBaseline = "middle";
-    this.ctx.fillStyle = resolveCssVar(fgToken);
-    this.ctx.fillText(icon, x + size / 2, y + size / 2 + 1);
-    this.ctx.textAlign = "left";
-    this.ctx.textBaseline = "alphabetic";
-  }
 
   /** 현재 피스가 바닥/스택 위에 있는지 — ▼ 버튼이 잠금 모드여야 할 때 */
   private isPieceOnFloor(snapshot: GameSnapshot): boolean {

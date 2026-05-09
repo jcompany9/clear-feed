@@ -49,6 +49,11 @@ export class InputController {
       pieceStartX: piece ? piece.x : 4,
       trail: [{ x: event.clientX, y: event.clientY }],
     };
+    // 컨트롤 버튼 누름 상태 (시각 피드백)
+    if (this.game.snapshot.mode === "planning") {
+      const action = this.renderer.screenToControl(event.clientX, event.clientY);
+      if (action) this.game.setPressedControl(action);
+    }
   };
 
   private onMove = (event: PointerEvent): void => {
@@ -85,6 +90,8 @@ export class InputController {
 
   private onUp = (event: PointerEvent): void => {
     event.preventDefault();
+    // 누름 상태 해제 (모드 무관)
+    this.game.setPressedControl(null);
     if (!this.touch || this.touch.id !== event.pointerId) return;
     const dx = event.clientX - this.touch.startX;
     const dy = event.clientY - this.touch.startY;
@@ -184,6 +191,7 @@ export class InputController {
       this.touch = null;
       this.game.setTouchTrail([]);
       this.game.setEditHoverPos(null);
+      this.game.setPressedControl(null);
     }
   };
 
