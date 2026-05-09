@@ -76,4 +76,5 @@ export interface GameSnapshot {
   editTool: "cell" | PieceKind;      // 현재 선택 도구 (셀 토글 또는 테트로미노)
   editToolRotation: number;          // 피스 도구의 회전 (0~3)
   editFeasibleLengths: number[];     // 현재 보드에서 수학적으로 풀이 가능한 큐 길이 (1~10 범위)
+  editHoverGhost: { cells: Point[]; kind: PieceKind | "cell"; valid: boolean } | null;  // 호버 미리보기
 }

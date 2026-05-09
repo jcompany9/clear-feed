@@ -24,6 +24,8 @@ export class Renderer {
   private finishButton: { x: number; y: number; w: number; h: number } | null = null;
   // 에디터 도구 박스 클릭 영역
   private editToolBoxes: Array<{ x: number; y: number; w: number; h: number; tool: "cell" | PieceKind }> = [];
+  // 에디터 회전 버튼 클릭 영역
+  private editRotateButton: { x: number; y: number; w: number; h: number } | null = null;
 
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d", { alpha: false });
@@ -79,6 +81,13 @@ export class Renderer {
     return null;
   }
 
+  /** 화면 좌표가 회전 버튼 위에 있으면 true */
+  isEditRotateButton(screenX: number, screenY: number): boolean {
+    if (!this.editRotateButton) return false;
+    const b = this.editRotateButton;
+    return screenX >= b.x && screenX <= b.x + b.w && screenY >= b.y && screenY <= b.y + b.h;
+  }
+
   resize(): void {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.width = Math.floor(window.innerWidth);
@@ -111,8 +120,8 @@ export class Renderer {
 
   private renderEditor(snapshot: GameSnapshot, board: DOMRect): void {
     const screen = this.screenRect();
-    // 화면 아래 110px은 툴바 + 상태배너 + 버튼 + 힌트용
-    const reservedBottom = 110;
+    // 화면 아래 120px은 툴바 + 상태배너 + 버튼 + 힌트용 (모바일 큰 터치 영역)
+    const reservedBottom = 120;
     const limit = screen.y + screen.height - reservedBottom;
     const usableHeight = Math.max(40, Math.min(board.height, limit - board.y));
     const cell = Math.floor(Math.min(board.width / COLS, usableHeight / ROWS));
@@ -145,6 +154,41 @@ export class Renderer {
       });
     });
 
+    // 호버 미리보기 ghost
+    if (snapshot.editHoverGhost) {
+      const { cells, kind, valid } = snapshot.editHoverGhost;
+      const alpha = valid ? 0.5 : 0.25;
+      if (kind === "cell") {
+        // 단일 셀 하이라이트
+        cells.forEach((p) => {
+          if (p.y < 0 || p.y >= ROWS || p.x < 0 || p.x >= COLS) return;
+          this.ctx.globalAlpha = alpha;
+          this.ctx.fillStyle = resolveCssVar(valid ? TOKENS.accent : TOKENS.danger);
+          this.ctx.fillRect(ox + p.x * cell + 1, oy + p.y * cell + 1, cell - 2, cell - 2);
+          this.ctx.globalAlpha = 1;
+        });
+      } else {
+        cells.forEach((p) => {
+          if (p.y < 0 || p.y >= ROWS || p.x < 0 || p.x >= COLS) return;
+          this.drawCell(ox, oy, cell, p.x, p.y, kind, alpha, false);
+        });
+        // invalid면 빨간 X 오버레이
+        if (!valid) {
+          cells.forEach((p) => {
+            if (p.y < 0 || p.y >= ROWS || p.x < 0 || p.x >= COLS) return;
+            this.ctx.strokeStyle = resolveCssVar(TOKENS.danger);
+            this.ctx.lineWidth = 2;
+            this.ctx.beginPath();
+            this.ctx.moveTo(ox + p.x * cell + 4, oy + p.y * cell + 4);
+            this.ctx.lineTo(ox + (p.x + 1) * cell - 4, oy + (p.y + 1) * cell - 4);
+            this.ctx.moveTo(ox + (p.x + 1) * cell - 4, oy + p.y * cell + 4);
+            this.ctx.lineTo(ox + p.x * cell + 4, oy + (p.y + 1) * cell - 4);
+            this.ctx.stroke();
+          });
+        }
+      }
+    }
+
     // 외곽선
     this.pixelStroke(ox, oy, boardW, boardH, 3, resolveCssVar(TOKENS.ink));
 
@@ -154,11 +198,14 @@ export class Renderer {
 
   private renderEditorToolbar(snapshot: GameSnapshot, toolbarY: number): void {
     this.editToolBoxes = [];
+    this.editRotateButton = null;
     const screen = this.screenRect();
     const tools: Array<"cell" | PieceKind> = ["cell", "I", "O", "T", "L", "J", "S", "Z"];
     const boxSize = 30;
     const gap = 3;
-    const totalW = tools.length * boxSize + (tools.length - 1) * gap;
+    // 툴바: 8 도구 + 4px 간격 + ROTATE 버튼
+    const rotateGap = 8;
+    const totalW = tools.length * boxSize + (tools.length - 1) * gap + rotateGap + boxSize;
     const startX = screen.x + (screen.width - totalW) / 2;
 
     for (let i = 0; i < tools.length; i += 1) {
@@ -213,6 +260,23 @@ export class Renderer {
         this.pixelStroke(bx, by, boxSize, boxSize, 1, resolveCssVar(TOKENS.ink));
       }
     }
+
+    // ROTATE 버튼 (마지막 도구 박스 오른쪽에 약간 떨어져서)
+    const rotateX = startX + tools.length * boxSize + (tools.length - 1) * gap + rotateGap;
+    const rotateY = toolbarY;
+    this.editRotateButton = { x: rotateX, y: rotateY, w: boxSize, h: boxSize };
+    const rotateEnabled = snapshot.editTool !== "cell";
+    this.ctx.fillStyle = resolveCssVar(rotateEnabled ? TOKENS.bgPanel : TOKENS.bgScreen);
+    this.ctx.fillRect(rotateX, rotateY, boxSize, boxSize);
+    this.pixelStroke(rotateX, rotateY, boxSize, boxSize, 1, resolveCssVar(TOKENS.ink));
+    // 회전 아이콘 — 단순화한 ↻ (산세리프 사용, 픽셀 폰트는 ↻ 미지원 가능)
+    this.ctx.font = `bold 18px sans-serif`;
+    this.ctx.textAlign = "center";
+    this.ctx.textBaseline = "middle";
+    this.ctx.fillStyle = resolveCssVar(rotateEnabled ? TOKENS.ink : TOKENS.inkMute);
+    this.ctx.fillText("↻", rotateX + boxSize / 2, rotateY + boxSize / 2 + 1);
+    this.ctx.textAlign = "left";
+    this.ctx.textBaseline = "alphabetic";
   }
 
   private renderTouchTrail(snapshot: GameSnapshot): void {

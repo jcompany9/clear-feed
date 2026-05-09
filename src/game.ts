@@ -54,6 +54,7 @@ export class Game {
   private editStatus: "idle" | "generating" | "ready" | "no-solution" = "idle";
   private editTool: "cell" | PieceKind = "cell";
   private editToolRotation = 0;
+  private editHoverPos: { col: number; row: number } | null = null;
   private useWorker: boolean;
   private solverWorker: Worker | null = null;
   private nextWorkerId = 0;
@@ -117,7 +118,41 @@ export class Game {
       editTool: this.editTool,
       editToolRotation: this.editToolRotation,
       editFeasibleLengths: this.computeFeasibleLengths(),
+      editHoverGhost: this.computeEditGhost(),
     };
+  }
+
+  /** 편집 모드 호버 위치 갱신 (마우스 이동 또는 터치 드래그) */
+  setEditHoverPos(pos: { col: number; row: number } | null): void {
+    if (this.mode !== "editing") {
+      this.editHoverPos = null;
+      return;
+    }
+    this.editHoverPos = pos;
+  }
+
+  /**
+   * 편집 모드 ghost: 현재 도구가 피스고 hover 위치 있으면 그 자리에 떨어질 셀들.
+   * 도구가 'cell'이면 단일 셀 하이라이트.
+   */
+  private computeEditGhost(): { cells: Point[]; kind: PieceKind | "cell"; valid: boolean } | null {
+    if (this.mode !== "editing" || this.editHoverPos === null) return null;
+    const { col, row } = this.editHoverPos;
+    if (this.editTool === "cell") {
+      // 단일 셀 하이라이트
+      return {
+        cells: [{ x: col, y: row }],
+        kind: "cell",
+        valid: col >= 0 && col < COLS && row >= 0 && row < ROWS,
+      };
+    }
+    let piece = createPiece(this.editTool);
+    for (let i = 0; i < this.editToolRotation; i += 1) piece = rotatePiece(piece);
+    piece = { ...piece, x: col, y: row };
+    const cells = absoluteCells(piece);
+    const inBounds = cells.every((c) => c.x >= 0 && c.x < COLS && c.y >= 0 && c.y < ROWS);
+    const free = inBounds && cells.every((c) => this.editGrid[c.y][c.x] === null);
+    return { cells, kind: this.editTool, valid: inBounds && free };
   }
 
   /** 수학적으로 풀이 가능한 큐 길이 (1~10 범위). (cellCount + 4q) % 10 === 0 만족하는 q. */

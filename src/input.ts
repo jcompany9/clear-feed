@@ -24,9 +24,15 @@ export class InputController {
     canvas.addEventListener("pointerup", this.onUp, { passive: false });
     canvas.addEventListener("pointercancel", this.onCancel, { passive: false });
     canvas.addEventListener("pointermove", this.onMove, { passive: true });
+    canvas.addEventListener("pointerleave", this.onLeave, { passive: true });
     canvas.addEventListener("contextmenu", (event) => event.preventDefault());
     window.addEventListener("keydown", this.onKey);
   }
+
+  private onLeave = (): void => {
+    // 마우스가 캔버스 밖으로 나가면 hover 정리
+    this.game.setEditHoverPos(null);
+  };
 
   private onDown = (event: PointerEvent): void => {
     event.preventDefault();
@@ -46,15 +52,29 @@ export class InputController {
   };
 
   private onMove = (event: PointerEvent): void => {
-    if (!this.touch || this.touch.id !== event.pointerId) return;
-    const dx = event.clientX - this.touch.startX;
-    const cellSize = this.renderer.getCellSize();
-    if (cellSize > 0 && this.game.snapshot.mode === "planning") {
-      // 시작 시점의 피스 위치에서 dx 만큼 컬럼 이동 — 셀 단위 변환
-      const colDelta = Math.round(dx / cellSize);
-      const targetCol = this.touch.pieceStartX + colDelta;
-      this.game.setPieceColumn(targetCol);
+    const mode = this.game.snapshot.mode;
+    // 마우스(호버) — 활성 터치 없어도 호버 갱신
+    if (event.pointerType !== "touch" && mode === "editing") {
+      const cell = this.renderer.screenToCell(event.clientX, event.clientY);
+      this.game.setEditHoverPos(cell ? { col: cell.col, row: cell.row } : null);
     }
+
+    if (!this.touch || this.touch.id !== event.pointerId) return;
+
+    if (mode === "planning") {
+      const dx = event.clientX - this.touch.startX;
+      const cellSize = this.renderer.getCellSize();
+      if (cellSize > 0) {
+        const colDelta = Math.round(dx / cellSize);
+        const targetCol = this.touch.pieceStartX + colDelta;
+        this.game.setPieceColumn(targetCol);
+      }
+    } else if (mode === "editing") {
+      // 터치 드래그 시 호버 위치 따라옴
+      const cell = this.renderer.screenToCell(event.clientX, event.clientY);
+      this.game.setEditHoverPos(cell ? { col: cell.col, row: cell.row } : null);
+    }
+
     this.touch.lastX = event.clientX;
     const last = this.touch.trail[this.touch.trail.length - 1];
     if ((event.clientX - last.x) ** 2 + (event.clientY - last.y) ** 2 >= 16) {
@@ -86,7 +106,7 @@ export class InputController {
       this.game.setTouchTrail([]);
     } else if (mode === "editing") {
       if (isTap) {
-        // 우선순위: FINISH 버튼 > 툴바 > 보드 셀
+        // 우선순위: FINISH > ROTATE > 툴바 > 보드 셀
         if (this.renderer.isFinishButton(event.clientX, event.clientY)) {
           const status = this.game.snapshot.editStatus;
           if (status === "ready") {
@@ -94,15 +114,26 @@ export class InputController {
           } else if (status !== "generating") {
             this.game.generateEditedPuzzle();
           }
+        } else if (this.renderer.isEditRotateButton(event.clientX, event.clientY)) {
+          this.game.rotateEditTool();
         } else {
           const tool = this.renderer.screenToTool(event.clientX, event.clientY);
           if (tool !== null) {
-            this.game.setEditTool(tool);
+            // 같은 도구 재탭 = 회전 (모바일 친화적)
+            if (tool === this.game.snapshot.editTool && tool !== "cell") {
+              this.game.rotateEditTool();
+            } else {
+              this.game.setEditTool(tool);
+            }
           } else {
             const cell = this.renderer.screenToCell(event.clientX, event.clientY);
             if (cell) this.game.editPlaceAt(cell.col, cell.row);
           }
         }
+      }
+      // 터치 종료 시 hover 정리 (터치는 hover 개념 없으니)
+      if (event.pointerType === "touch") {
+        this.game.setEditHoverPos(null);
       }
       this.game.setTouchTrail([]);
     } else if (mode === "feed" && isTap && this.renderer.isEditButton(event.clientX, event.clientY)) {
@@ -128,6 +159,7 @@ export class InputController {
     if (this.touch?.id === event.pointerId) {
       this.touch = null;
       this.game.setTouchTrail([]);
+      this.game.setEditHoverPos(null);
     }
   };
 
