@@ -77,21 +77,22 @@ export class InputController {
         if (dy < 0) this.game.abandon();
         else this.game.undoLastPlacement();
       } else {
-        // 핸드 카드 우선 검사
-        const handIdx = this.renderer.screenToHandIndex(event.clientX, event.clientY);
-        if (handIdx !== null) {
-          this.game.selectPiece(handIdx);
+        // START 버튼 우선 검사
+        if (this.renderer.isStartButton(event.clientX, event.clientY)) {
+          this.game.executePlan();
         } else {
-          // 어디서 떼든 (드래그 끝 위치) 그 컬럼에 배치
-          const col = this.renderer.screenToColumn(event.clientX, event.clientY);
-          if (col !== null) {
-            this.game.placeAt(col);
+          // 핸드 카드 검사
+          const handIdx = this.renderer.screenToHandIndex(event.clientX, event.clientY);
+          if (handIdx !== null) {
+            this.game.selectPiece(handIdx);
+          } else {
+            // 어디서 떼든 (드래그 끝 위치) 그 컬럼에 active 피스 계획
+            const col = this.renderer.screenToColumn(event.clientX, event.clientY);
+            if (col !== null) {
+              this.game.placeAt(col);
+            }
           }
         }
-      }
-      // 터치 종료 시 trail/hover 정리 (모바일은 미리보기 사라져야 함)
-      if (event.pointerType === "touch") {
-        this.game.setHoverColumn(null);
       }
       this.game.setTouchTrail([]);
     } else if (horizontal && dx < -70) {
@@ -132,6 +133,7 @@ export class InputController {
       if (event.key === "Backspace" || event.key.toLowerCase() === "u") {
         this.game.undoLastPlacement();
       }
+      if (event.key === "Enter") this.game.executePlan();
       if (event.key === "Escape") this.game.abandon();
     } else if (mode === "failed") {
       if (event.key === "Enter" || event.key === " ") this.game.retry();

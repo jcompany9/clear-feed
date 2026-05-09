@@ -34,6 +34,19 @@ export interface FeedItem {
   cleared: boolean;
 }
 
+export interface PlannedMove {
+  x: number;
+  rotation: number; // 0~3
+}
+
+export interface PlannedGhost {
+  cells: Point[];
+  kind: PieceKind;
+  queueIndex: number;
+  isActive: boolean;
+  valid: boolean;  // false = 배치 불가능 (다른 ghost와 충돌)
+}
+
 export interface AnimationState {
   landedAt: number;
   landingCells: Point[];
@@ -64,10 +77,10 @@ export interface GameSnapshot {
   soundOn: boolean;
   animation: AnimationState;
   // Planning 모드 전용
-  queueIndex: number;        // 사용된 피스 수 (= usedIndices.length, 호환성용)
-  attempts: number;          // 현재 퍼즐 시도 횟수 (실패 누적)
-  currentRotation: number;   // 다음 배치할 피스의 회전 상태 (0~3)
-  planningGhost: { cells: Point[]; kind: PieceKind } | null;  // 마우스 호버 위치의 미리보기 셀들
-  selectedIndex: number;     // 현재 선택된 큐 인덱스 (사용자가 다음에 둘 피스)
-  usedIndices: number[];     // 이미 사용된 큐 인덱스 (정렬되지 않을 수 있음)
+  attempts: number;                              // 현재 퍼즐 시도 횟수 (실패 누적)
+  activeEditIndex: number | null;                // 현재 편집 중인 큐 인덱스
+  currentRotation: number;                       // active 피스의 회전 상태 (0~3)
+  plannedMoves: Array<PlannedMove | null>;       // 큐 길이만큼, null이면 미계획
+  plannedGhosts: PlannedGhost[];                 // 시뮬레이션 결과 ghost 셀들
+  canExecute: boolean;                           // 모든 피스 계획됨 → START 활성화
 }

@@ -1,27 +1,32 @@
-import { COLS, ROWS, type AnimationState, type Cell, type FeedItem, type GameMode, type GameSnapshot, type Piece, type Point, type Puzzle } from "./gameTypes";
+import {
+  COLS,
+  ROWS,
+  type AnimationState,
+  type Cell,
+  type FeedItem,
+  type GameMode,
+  type GameSnapshot,
+  type Piece,
+  type PieceKind,
+  type PlannedGhost,
+  type PlannedMove,
+  type Point,
+  type Puzzle,
+} from "./gameTypes";
 import { absoluteCells, createPiece, rotatePiece } from "./pieces";
 import { createFeedPuzzle, createInitialFeed } from "./puzzleGenerator";
 import { loadStorage, rememberPuzzle, setSoundOn } from "./storage";
 import { SoundSystem } from "./sound";
-
-interface PlacementSnapshot {
-  grid: Cell[][];
-  selectedIndex: number;
-  usedIndices: number[];
-  rotation: number;
-}
 
 export class Game {
   private mode: GameMode = "feed";
   private feed: FeedItem[];
   private feedIndex = 0;
   private grid: Cell[][];
-  private selectedIndex = 0;
-  private usedIndices: number[] = [];
+  private plannedMoves: Array<PlannedMove | null> = [];
+  private activeEditIndex: number | null = null;
   private currentRotation = 0;
   private attempts = 0;
-  private placementHistory: PlacementSnapshot[] = [];
-  private hoverColumn: number | null = null;
   private sound: SoundSystem;
   private animation: AnimationState = {
     landedAt: 0,
@@ -52,54 +57,26 @@ export class Game {
   }
 
   get snapshot(): GameSnapshot {
+    const ghosts = this.computePlannedGhosts();
     return {
       mode: this.mode,
       puzzle: this.activePuzzle,
       grid: this.grid,
       current: null,
-      next: this.mode === "planning" ? this.getSelectedKind() : this.activePuzzle.queue[0] ?? null,
-      blocksLeft: this.activePuzzle.queue.length - this.usedIndices.length,
+      next: this.mode === "planning" ? this.activePieceKind() : this.activePuzzle.queue[0] ?? null,
+      blocksLeft: this.plannedMoves.filter((m) => m === null).length,
       linesCleared: 0,
       feed: this.feed,
       feedIndex: this.feedIndex,
       soundOn: this.sound.isEnabled,
       animation: this.animation,
-      queueIndex: this.usedIndices.length,
       attempts: this.attempts,
+      activeEditIndex: this.activeEditIndex,
       currentRotation: this.currentRotation,
-      planningGhost: this.computeGhost(),
-      selectedIndex: this.selectedIndex,
-      usedIndices: [...this.usedIndices],
+      plannedMoves: this.plannedMoves.slice(),
+      plannedGhosts: ghosts,
+      canExecute: this.mode === "planning" && this.plannedMoves.every((m) => m !== null) && ghosts.every((g) => g.valid),
     };
-  }
-
-  setHoverColumn(col: number | null): void {
-    if (this.mode !== "planning") {
-      this.hoverColumn = null;
-      return;
-    }
-    this.hoverColumn = col;
-  }
-
-  setTouchTrail(points: Array<{ x: number; y: number }>): void {
-    this.animation.touchTrail = points;
-  }
-
-  /** hoverColumn에 현재 선택 피스를 떨어뜨렸을 때 안착 셀들. 없으면 null. */
-  private computeGhost(): { cells: Point[]; kind: "I" | "O" | "T" | "L" | "J" | "S" | "Z" } | null {
-    if (this.mode !== "planning" || this.hoverColumn === null) return null;
-    const kind = this.getSelectedKind();
-    if (!kind) return null;
-    let piece = createPiece(kind);
-    for (let i = 0; i < this.currentRotation; i += 1) {
-      piece = rotatePiece(piece);
-    }
-    piece = { ...piece, x: this.hoverColumn, y: -2 };
-    while (this.canPlace({ ...piece, y: piece.y + 1 })) {
-      piece = { ...piece, y: piece.y + 1 };
-    }
-    if (!this.canPlace(piece)) return null;
-    return { cells: absoluteCells(piece), kind };
   }
 
   update(_now: number): void {
@@ -116,119 +93,143 @@ export class Game {
     if (this.mode === "planning") return;
     this.mode = "planning";
     this.grid = cloneGrid(this.activePuzzle.grid);
-    this.usedIndices = [];
-    this.selectedIndex = 0;
+    this.plannedMoves = this.activePuzzle.queue.map(() => null);
+    this.activeEditIndex = 0;
     this.currentRotation = 0;
     this.attempts = 0;
-    this.placementHistory = [];
     this.animation.message = "";
     this.sound.unlock();
   }
 
-  /** 현재 선택된 피스의 종류 (planning 모드 한정) */
-  private getSelectedKind(): "I" | "O" | "T" | "L" | "J" | "S" | "Z" | null {
-    if (this.selectedIndex < 0 || this.selectedIndex >= this.activePuzzle.queue.length) return null;
-    if (this.usedIndices.includes(this.selectedIndex)) return null;
-    return this.activePuzzle.queue[this.selectedIndex];
+  /** 현재 active 피스의 kind */
+  private activePieceKind(): PieceKind | null {
+    if (this.activeEditIndex === null) return null;
+    if (this.activeEditIndex < 0 || this.activeEditIndex >= this.activePuzzle.queue.length) return null;
+    return this.activePuzzle.queue[this.activeEditIndex];
   }
 
-  /** 큐의 i번째 피스 선택 (사용된 피스는 선택 불가) */
   selectPiece(index: number): void {
     if (this.mode !== "planning") return;
     if (index < 0 || index >= this.activePuzzle.queue.length) return;
-    if (this.usedIndices.includes(index)) return;
-    this.selectedIndex = index;
-    this.currentRotation = 0;
+    this.activeEditIndex = index;
+    // 기존 계획이 있으면 해당 회전 복원, 없으면 0
+    this.currentRotation = this.plannedMoves[index]?.rotation ?? 0;
     this.sound.play("move");
   }
 
   rotatePlanningPiece(): void {
-    if (this.mode !== "planning") return;
-    if (!this.getSelectedKind()) return;
+    if (this.mode !== "planning" || this.activeEditIndex === null) return;
     this.currentRotation = (this.currentRotation + 1) % 4;
+    // 이미 계획된 피스라면 회전만 업데이트 (x는 유지)
+    const idx = this.activeEditIndex;
+    const existing = this.plannedMoves[idx];
+    if (existing) {
+      this.plannedMoves[idx] = { x: existing.x, rotation: this.currentRotation };
+    }
     this.sound.play("rotate");
   }
 
-  /** 사용 안 한 다음 인덱스로 selectedIndex 이동 (placement 후 자동 호출) */
-  private advanceSelection(): void {
-    const total = this.activePuzzle.queue.length;
-    for (let offset = 1; offset <= total; offset += 1) {
-      const candidate = (this.selectedIndex + offset) % total;
-      if (!this.usedIndices.includes(candidate)) {
-        this.selectedIndex = candidate;
+  /** 보드 컬럼 클릭/드래그 — active 피스의 계획 위치를 그 컬럼으로 설정 */
+  placeAt(targetX: number): void {
+    if (this.mode !== "planning" || this.activeEditIndex === null) return;
+    const idx = this.activeEditIndex;
+    this.plannedMoves[idx] = { x: targetX, rotation: this.currentRotation };
+    this.sound.play("land");
+    // 다음 미계획 피스로 자동 이동
+    this.advanceActiveToNext();
+  }
+
+  private advanceActiveToNext(): void {
+    const queueLen = this.activePuzzle.queue.length;
+    if (this.activeEditIndex === null) return;
+    for (let offset = 1; offset <= queueLen; offset += 1) {
+      const candidate = (this.activeEditIndex + offset) % queueLen;
+      if (this.plannedMoves[candidate] === null) {
+        this.activeEditIndex = candidate;
+        this.currentRotation = 0;
         return;
       }
     }
-    // 다 사용됨 — selectedIndex 그대로 (의미 없음, evaluate가 곧 호출됨)
-  }
-
-  /** 클릭한 컬럼에 현재 선택 피스를 떨어뜨려 배치 */
-  placeAt(targetX: number): void {
-    if (this.mode !== "planning") return;
-    const kind = this.getSelectedKind();
-    if (!kind) return;
-
-    let piece = createPiece(kind);
-    for (let i = 0; i < this.currentRotation; i += 1) {
-      piece = rotatePiece(piece);
-    }
-    piece = { ...piece, x: targetX, y: -2 };
-
-    // 중력 시뮬레이션 — 가장 낮은 가능 위치까지 떨어뜨림
-    while (this.canPlace({ ...piece, y: piece.y + 1 })) {
-      piece = { ...piece, y: piece.y + 1 };
-    }
-
-    if (!this.canPlace(piece)) {
-      this.flashToast("CAN'T PLACE");
-      return;
-    }
-
-    // undo 용 스냅샷
-    this.placementHistory.push({
-      grid: cloneGrid(this.grid),
-      selectedIndex: this.selectedIndex,
-      usedIndices: [...this.usedIndices],
-      rotation: this.currentRotation,
-    });
-
-    // 셀 잠그기
-    const cells = absoluteCells(piece);
-    for (const cell of cells) {
-      if (cell.y >= 0 && cell.y < ROWS && cell.x >= 0 && cell.x < COLS) {
-        this.grid[cell.y][cell.x] = piece.kind;
-      }
-    }
-
-    this.animation.landedAt = performance.now();
-    this.animation.landingCells = cells;
-    this.sound.play("land");
-
-    // 라인 클리어
-    this.clearLines(performance.now());
-
-    this.usedIndices.push(this.selectedIndex);
-    this.currentRotation = 0;
-
-    if (this.usedIndices.length >= this.activePuzzle.queue.length) {
-      this.evaluate();
-    } else {
-      this.advanceSelection();
-    }
+    // 모두 계획됨 — active 그대로 유지 (다시 편집 가능)
   }
 
   undoLastPlacement(): void {
     if (this.mode !== "planning") return;
-    const prev = this.placementHistory.pop();
-    if (!prev) return;
-    this.grid = prev.grid;
-    this.selectedIndex = prev.selectedIndex;
-    this.usedIndices = prev.usedIndices;
-    this.currentRotation = prev.rotation;
-    this.sound.play("move");
+    // 가장 최근에 계획한 피스를 미계획으로 되돌림
+    // plannedMoves가 array이고 어떤 게 "마지막"인지 모르므로,
+    // active 피스를 미계획으로 되돌림
+    if (this.activeEditIndex !== null && this.plannedMoves[this.activeEditIndex] !== null) {
+      this.plannedMoves[this.activeEditIndex] = null;
+      this.currentRotation = 0;
+      this.sound.play("move");
+    }
   }
 
-  /** 모든 피스 배치 후 결과 평가 */
+  /** 모든 계획을 비우고 재시작 (active = 0) */
+  clearAllPlans(): void {
+    if (this.mode !== "planning") return;
+    this.plannedMoves = this.activePuzzle.queue.map(() => null);
+    this.activeEditIndex = 0;
+    this.currentRotation = 0;
+  }
+
+  /** START — 계획대로 모든 피스를 순차 적용 */
+  executePlan(): void {
+    if (this.mode !== "planning") return;
+    if (!this.plannedMoves.every((m) => m !== null)) {
+      this.flashToast("PLAN INCOMPLETE");
+      return;
+    }
+    let workingGrid = cloneGrid(this.grid);
+    const queueLen = this.activePuzzle.queue.length;
+    for (let i = 0; i < queueLen; i += 1) {
+      const move = this.plannedMoves[i]!;
+      const kind = this.activePuzzle.queue[i];
+      const piece = simulateDrop(workingGrid, kind, move.x, move.rotation);
+      if (!piece) {
+        // 배치 불가 — 시뮬레이션 실패
+        continue;
+      }
+      const cells = absoluteCells(piece);
+      cells.forEach((cell) => {
+        if (cell.y >= 0 && cell.y < ROWS && cell.x >= 0 && cell.x < COLS) {
+          workingGrid[cell.y][cell.x] = kind;
+        }
+      });
+      workingGrid = clearGridLines(workingGrid);
+    }
+    this.grid = workingGrid;
+    this.evaluate();
+  }
+
+  /** 시뮬레이션 — 모든 plannedMoves 적용한 후의 ghost 위치들 */
+  private computePlannedGhosts(): PlannedGhost[] {
+    if (this.mode !== "planning") return [];
+    const result: PlannedGhost[] = [];
+    let workingGrid = cloneGrid(this.grid);
+    const queueLen = this.activePuzzle.queue.length;
+    for (let i = 0; i < queueLen; i += 1) {
+      const move = this.plannedMoves[i];
+      if (move === null) continue;
+      const kind = this.activePuzzle.queue[i];
+      const piece = simulateDrop(workingGrid, kind, move.x, move.rotation);
+      const isActive = i === this.activeEditIndex;
+      if (!piece) {
+        result.push({ cells: [], kind, queueIndex: i, isActive, valid: false });
+        continue;
+      }
+      const cells = absoluteCells(piece);
+      result.push({ cells, kind, queueIndex: i, isActive, valid: true });
+      cells.forEach((cell) => {
+        if (cell.y >= 0 && cell.y < ROWS && cell.x >= 0 && cell.x < COLS) {
+          workingGrid[cell.y][cell.x] = kind;
+        }
+      });
+      workingGrid = clearGridLines(workingGrid);
+    }
+    return result;
+  }
+
   private evaluate(): void {
     this.attempts += 1;
     const isEmpty = this.grid.every((row) => row.every((cell) => cell === null));
@@ -247,23 +248,19 @@ export class Game {
     this.animation.messageStartedAt = performance.now();
   }
 
-  /** 실패 후 같은 퍼즐 다시 시도 (attempts 누적) */
   retry(): void {
     if (this.mode !== "failed" && this.mode !== "clear") return;
     if (this.mode === "clear") {
-      // 클리어 후 다시 시도하면 카운터 리셋 + 같은 퍼즐
       this.attempts = 0;
     }
     this.grid = cloneGrid(this.activePuzzle.grid);
-    this.usedIndices = [];
-    this.selectedIndex = 0;
+    this.plannedMoves = this.activePuzzle.queue.map(() => null);
+    this.activeEditIndex = 0;
     this.currentRotation = 0;
-    this.placementHistory = [];
     this.mode = "planning";
     this.animation.message = "";
   }
 
-  /** 클리어 후 다음 퍼즐로 진행 */
   advance(): void {
     if (this.mode !== "clear") return;
     this.attempts = 0;
@@ -280,10 +277,9 @@ export class Game {
     this.mode = "feed";
     this.attempts = 0;
     this.grid = cloneGrid(this.activePuzzle.grid);
-    this.usedIndices = [];
-    this.selectedIndex = 0;
+    this.plannedMoves = [];
+    this.activeEditIndex = null;
     this.currentRotation = 0;
-    this.placementHistory = [];
   }
 
   nextFeed(direction: 1 | -1): void {
@@ -352,21 +348,17 @@ export class Game {
     }
   }
 
+  setHoverColumn(_col: number | null): void {
+    // hover preview deprecated — 모든 미리보기는 plannedGhosts로 통합
+  }
+
+  setTouchTrail(points: Array<{ x: number; y: number }>): void {
+    this.animation.touchTrail = points;
+  }
+
   private flashToast(msg: string): void {
     this.animation.toast = msg;
     this.animation.toastAt = performance.now();
-  }
-
-  private clearLines(_now: number): void {
-    const rows = this.grid
-      .map((row, y) => (row.every(Boolean) && !row.some((cell) => cell === "wall") ? y : -1))
-      .filter((row) => row >= 0);
-    if (!rows.length) return;
-    this.animation.clearingRows = rows;
-    this.animation.clearStartedAt = performance.now();
-    this.grid = this.grid.filter((_, y) => !rows.includes(y));
-    while (this.grid.length < ROWS) this.grid.unshift(Array.from({ length: COLS }, () => null));
-    this.sound.play("line");
   }
 
   private appendPuzzle(): void {
@@ -380,16 +372,40 @@ export class Game {
     this.animation.previousPuzzle = this.activePuzzle;
     this.animation.previousGrid = cloneGrid(this.grid);
   }
-
-  private canPlace(piece: Piece): boolean {
-    return absoluteCells(piece).every((cell) => {
-      if (cell.x < 0 || cell.x >= COLS || cell.y >= ROWS) return false;
-      if (cell.y < 0) return true;
-      return !this.grid[cell.y][cell.x];
-    });
-  }
 }
 
 function cloneGrid(grid: Cell[][]): Cell[][] {
   return grid.map((row) => [...row]);
+}
+
+function canPlaceOn(grid: Cell[][], piece: Piece): boolean {
+  return absoluteCells(piece).every((cell) => {
+    if (cell.x < 0 || cell.x >= COLS || cell.y >= ROWS) return false;
+    if (cell.y < 0) return true;
+    return !grid[cell.y][cell.x];
+  });
+}
+
+/** kind 피스를 (x, rotation)으로 grid에 떨어뜨려 안착시키는 시뮬레이션 — 안착 가능하면 piece 반환 */
+function simulateDrop(grid: Cell[][], kind: PieceKind, x: number, rotation: number): Piece | null {
+  let piece = createPiece(kind);
+  for (let i = 0; i < rotation; i += 1) piece = rotatePiece(piece);
+  piece = { ...piece, x, y: -2 };
+  while (canPlaceOn(grid, { ...piece, y: piece.y + 1 })) {
+    piece = { ...piece, y: piece.y + 1 };
+  }
+  if (!canPlaceOn(grid, piece)) return null;
+  return piece;
+}
+
+function clearGridLines(grid: Cell[][]): Cell[][] {
+  const rows = grid
+    .map((row, y) => (row.every(Boolean) && !row.some((cell) => cell === "wall") ? y : -1))
+    .filter((row) => row >= 0);
+  if (!rows.length) return grid;
+  let result = grid.filter((_, y) => !rows.includes(y));
+  while (result.length < ROWS) {
+    result = [Array.from({ length: COLS }, () => null), ...result];
+  }
+  return result;
 }

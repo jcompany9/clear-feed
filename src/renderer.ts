@@ -21,6 +21,8 @@ export class Renderer {
   private boardCell = 0;
   // 핸드 영역 클릭 검사용 (각 큐 인덱스의 화면 위치)
   private handBoxes: { x: number; y: number; w: number; h: number; index: number }[] = [];
+  // START 버튼 클릭 검사용
+  private startButton: { x: number; y: number; w: number; h: number } | null = null;
 
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d", { alpha: false });
@@ -46,6 +48,13 @@ export class Renderer {
       }
     }
     return null;
+  }
+
+  /** 화면 좌표가 START 버튼 위에 있으면 true */
+  isStartButton(screenX: number, screenY: number): boolean {
+    if (!this.startButton) return false;
+    const b = this.startButton;
+    return screenX >= b.x && screenX <= b.x + b.w && screenY >= b.y && screenY <= b.y + b.h;
   }
 
   resize(): void {
@@ -176,8 +185,8 @@ export class Renderer {
     this.ctx.font = `bold 18px ${FONT_MONO_BASE}`;
     this.ctx.fillStyle = resolveCssVar(TOKENS.ink);
     const total = snapshot.puzzle.queue.length;
-    const placed = snapshot.queueIndex;
-    this.ctx.fillText(`${placed}/${total}`, screen.x + 14, top + 26);
+    const planned = snapshot.plannedMoves.filter((m) => m !== null && m !== undefined).length;
+    this.ctx.fillText(`${planned}/${total}`, screen.x + 14, top + 26);
 
     this.ctx.textAlign = "right";
     const tries = snapshot.attempts + (snapshot.mode === "planning" ? 1 : 0);
@@ -292,12 +301,31 @@ export class Renderer {
       cells.forEach((point) => this.drawCell(ox, oy, cell, point.x, point.y, snapshot.current!.kind, 1, lockPulse > 0));
     }
 
-    // Planning 모드 호버 미리보기 (반투명 ghost)
-    if (active && snapshot.planningGhost) {
-      const { cells: ghostCells, kind } = snapshot.planningGhost;
-      ghostCells.forEach((point) => {
-        this.drawCell(ox, oy, cell, point.x, point.y, kind, 0.42, false);
-      });
+    // Planning 모드: 모든 plannedGhosts를 표시 (active = 더 진하게)
+    if (active && snapshot.plannedGhosts && snapshot.plannedGhosts.length > 0) {
+      for (const ghost of snapshot.plannedGhosts) {
+        if (!ghost.valid || ghost.cells.length === 0) continue;
+        const alpha = ghost.isActive ? 0.7 : 0.4;
+        ghost.cells.forEach((point) => {
+          this.drawCell(ox, oy, cell, point.x, point.y, ghost.kind, alpha, false);
+        });
+        // active 피스의 ghost 셀에 작은 인디케이터 (큐 인덱스)
+        if (ghost.isActive && ghost.cells.length > 0) {
+          const minX = Math.min(...ghost.cells.map((c) => c.x));
+          const minY = Math.min(...ghost.cells.map((c) => c.y));
+          const tagX = ox + minX * cell;
+          const tagY = oy + Math.max(0, minY) * cell;
+          this.ctx.fillStyle = resolveCssVar(TOKENS.accent);
+          this.ctx.fillRect(tagX, tagY, 8, 8);
+          this.ctx.font = `bold 7px ${FONT_PIXEL_BASE}`;
+          this.ctx.fillStyle = resolveCssVar(TOKENS.bgPanel);
+          this.ctx.textAlign = "center";
+          this.ctx.textBaseline = "middle";
+          this.ctx.fillText(String(ghost.queueIndex + 1), tagX + 4, tagY + 4);
+          this.ctx.textAlign = "left";
+          this.ctx.textBaseline = "alphabetic";
+        }
+      }
     }
 
     // 보드 외곽선 (3px solid ink) — 셀을 가리도록 마지막에 그림
@@ -403,17 +431,42 @@ export class Renderer {
   }
 
   private renderGestureHints(snapshot: GameSnapshot): void {
+    this.startButton = null;
     if (snapshot.mode !== "planning") return;
     const screen = this.screenRect();
+
+    // START 버튼 (canExecute 시 활성화) — 화면 하단 중앙에 큰 버튼
+    const btnW = 140;
+    const btnH = 32;
+    const btnX = screen.x + (screen.width - btnW) / 2;
+    const btnY = screen.y + screen.height - 44;
+    this.startButton = { x: btnX, y: btnY, w: btnW, h: btnH };
+
+    const enabled = snapshot.canExecute;
     this.ctx.save();
-    this.ctx.globalAlpha = 0.6;
+    this.ctx.fillStyle = enabled ? resolveCssVar(TOKENS.accent) : resolveCssVar(TOKENS.bgPanel);
+    this.ctx.fillRect(btnX, btnY, btnW, btnH);
+    this.pixelStroke(btnX, btnY, btnW, btnH, 2, resolveCssVar(TOKENS.ink));
+    this.ctx.font = `bold 12px ${FONT_PIXEL_BASE}`;
+    this.ctx.textAlign = "center";
+    this.ctx.textBaseline = "middle";
+    this.ctx.fillStyle = enabled ? resolveCssVar(TOKENS.bgPanel) : resolveCssVar(TOKENS.inkMute);
+    const label = enabled ? "▶ START" : "PLAN ALL";
+    this.ctx.fillText(label, btnX + btnW / 2, btnY + btnH / 2);
+    this.ctx.restore();
+    this.ctx.textAlign = "left";
+    this.ctx.textBaseline = "alphabetic";
+
+    // 작은 힌트 텍스트 (버튼 위)
+    this.ctx.save();
+    this.ctx.globalAlpha = 0.5;
     this.ctx.textAlign = "center";
     this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
     this.ctx.fillStyle = resolveCssVar(TOKENS.inkMute);
     this.ctx.fillText(
-      "TAP COL PLACE   R ROTATE   DOWN UNDO   UP QUIT",
+      "TAP COL PLAN   R ROTATE   CARD SWITCH",
       screen.x + screen.width / 2,
-      screen.y + screen.height - 14,
+      btnY - 8,
     );
     this.ctx.restore();
     this.ctx.textAlign = "left";
@@ -478,7 +531,7 @@ export class Renderer {
   private boardRect(): DOMRect {
     const screen = this.screenRect();
     const top = screen.y + 60 + 50; // +50 for hand area
-    const bottom = screen.y + screen.height - 28;
+    const bottom = screen.y + screen.height - 60; // +60 for START button area
     return new DOMRect(screen.x, top, screen.width, bottom - top);
   }
 
@@ -507,11 +560,11 @@ export class Renderer {
       const by = yTop;
       this.handBoxes.push({ x: bx, y: by, w: boxSize, h: boxSize, index: i });
 
-      const isUsed = snapshot.usedIndices.includes(i);
-      const isSelected = i === snapshot.selectedIndex && !isUsed;
+      const isPlanned = snapshot.plannedMoves[i] !== null && snapshot.plannedMoves[i] !== undefined;
+      const isActive = i === snapshot.activeEditIndex;
 
       // 카드 배경
-      this.ctx.fillStyle = resolveCssVar(isUsed ? TOKENS.bgScreen : TOKENS.bgPanel);
+      this.ctx.fillStyle = resolveCssVar(TOKENS.bgPanel);
       this.ctx.fillRect(bx, by, boxSize, boxSize);
 
       // 미니 피스 그리기
@@ -528,7 +581,6 @@ export class Renderer {
       const offsetY = by + (boxSize - h * miniSize) / 2;
 
       const colors = PIECE_COLORS[kind];
-      this.ctx.globalAlpha = isUsed ? 0.25 : 1;
       cells.forEach((c) => {
         const px = offsetX + (c.x - minX) * miniSize;
         const py = offsetY + (c.y - minY) * miniSize;
@@ -538,23 +590,20 @@ export class Renderer {
         this.ctx.lineWidth = 1;
         this.ctx.strokeRect(px + 0.5, py + 0.5, miniSize - 1, miniSize - 1);
       });
-      this.ctx.globalAlpha = 1;
 
-      // 카드 테두리 (선택된 건 굵고 강조색)
-      if (isSelected) {
+      // 테두리: active = 굵은 accent, planned = 일반, neither = 점선 같은 dim
+      if (isActive) {
         this.pixelStroke(bx, by, boxSize, boxSize, 2, resolveCssVar(TOKENS.accent));
-      } else {
+      } else if (isPlanned) {
         this.pixelStroke(bx, by, boxSize, boxSize, 1, resolveCssVar(TOKENS.ink));
+      } else {
+        this.pixelStroke(bx, by, boxSize, boxSize, 1, resolveCssVar(TOKENS.inkMute));
       }
 
-      // 사용된 카드: 대각선
-      if (isUsed) {
-        this.ctx.strokeStyle = resolveCssVar(TOKENS.inkSoft);
-        this.ctx.lineWidth = 1.5;
-        this.ctx.beginPath();
-        this.ctx.moveTo(bx + 4, by + 4);
-        this.ctx.lineTo(bx + boxSize - 4, by + boxSize - 4);
-        this.ctx.stroke();
+      // 계획된 표시 (하단에 작은 점)
+      if (isPlanned) {
+        this.ctx.fillStyle = resolveCssVar(TOKENS.success);
+        this.ctx.fillRect(bx + boxSize / 2 - 2, by + boxSize - 4, 4, 2);
       }
     }
   }

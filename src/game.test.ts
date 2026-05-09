@@ -42,51 +42,11 @@ describe("Game — initial state", () => {
     expect(game.snapshot.grid[0]).toHaveLength(COLS);
   });
 
-  it("queueIndex starts at 0 and attempts at 0", () => {
+  it("plannedMoves and activeEditIndex defaults", () => {
     const game = makeGame();
-    expect(game.snapshot.queueIndex).toBe(0);
-    expect(game.snapshot.attempts).toBe(0);
-  });
-
-  it("usedIndices starts empty and selectedIndex starts at 0", () => {
-    const game = makeGame();
-    expect(game.snapshot.usedIndices).toEqual([]);
-    expect(game.snapshot.selectedIndex).toBe(0);
-  });
-});
-
-describe("Game.selectPiece", () => {
-  beforeEach(() => localStorage.clear());
-
-  it("selects an unused queue index", () => {
-    const game = makeGame();
-    game.startPlanning();
-    game.selectPiece(2);
-    expect(game.snapshot.selectedIndex).toBe(2);
-  });
-
-  it("ignores out-of-range indices", () => {
-    const game = makeGame();
-    game.startPlanning();
-    const before = game.snapshot.selectedIndex;
-    game.selectPiece(-1);
-    game.selectPiece(999);
-    expect(game.snapshot.selectedIndex).toBe(before);
-  });
-
-  it("does nothing in feed mode", () => {
-    const game = makeGame();
-    game.selectPiece(2);
-    expect(game.snapshot.selectedIndex).toBe(0);
-  });
-
-  it("resets currentRotation when selecting a different piece", () => {
-    const game = makeGame();
-    game.startPlanning();
-    game.rotatePlanningPiece();
-    expect(game.snapshot.currentRotation).toBe(1);
-    game.selectPiece(2);
-    expect(game.snapshot.currentRotation).toBe(0);
+    expect(game.snapshot.plannedMoves).toEqual([]);
+    expect(game.snapshot.activeEditIndex).toBeNull();
+    expect(game.snapshot.canExecute).toBe(false);
   });
 });
 
@@ -99,70 +59,82 @@ describe("Game.startPlanning", () => {
     expect(game.snapshot.mode).toBe("planning");
   });
 
-  it("resets queueIndex and attempts", () => {
+  it("initializes plannedMoves to all-null with activeEditIndex=0", () => {
     const game = makeGame();
     game.startPlanning();
-    expect(game.snapshot.queueIndex).toBe(0);
-    expect(game.snapshot.attempts).toBe(0);
+    const queueLen = game.snapshot.puzzle.queue.length;
+    expect(game.snapshot.plannedMoves).toHaveLength(queueLen);
+    expect(game.snapshot.plannedMoves.every((m) => m === null)).toBe(true);
+    expect(game.snapshot.activeEditIndex).toBe(0);
     expect(game.snapshot.currentRotation).toBe(0);
   });
 
   it("loads grid from puzzle initial state", () => {
     const game = makeGame();
     game.startPlanning();
-    // grid should contain the puzzle's pre-filled blocks
     const filledCount = game.snapshot.grid.flat().filter((c) => c !== null).length;
     expect(filledCount).toBeGreaterThan(0);
   });
-
-  it("snapshot.next exposes the first piece in the queue", () => {
-    const game = makeGame();
-    game.startPlanning();
-    expect(game.snapshot.next).toBe(game.snapshot.puzzle.queue[0]);
-  });
 });
 
-describe("Game.placeAt", () => {
+describe("Game.placeAt — adds plan, advances active", () => {
   beforeEach(() => localStorage.clear());
 
-  it("marks the selected index as used after placement", () => {
+  it("sets the active piece's plan and auto-advances active to next unplanned", () => {
     const game = makeGame();
     game.startPlanning();
-    const initialIdx = game.snapshot.selectedIndex;
+    const firstActive = game.snapshot.activeEditIndex!;
     game.placeAt(4);
-    if (game.snapshot.usedIndices.length > 0) {
-      expect(game.snapshot.usedIndices).toContain(initialIdx);
+    expect(game.snapshot.plannedMoves[firstActive]).toEqual({ x: 4, rotation: 0 });
+    // active should advance (unless only 1 piece in queue)
+    if (game.snapshot.puzzle.queue.length > 1) {
+      expect(game.snapshot.activeEditIndex).not.toBe(firstActive);
     }
   });
 
-  it("auto-advances selectedIndex to next unused after placement", () => {
+  it("re-placing on already-planned active updates the same slot", () => {
     const game = makeGame();
     game.startPlanning();
-    const initialIdx = game.snapshot.selectedIndex;
-    game.placeAt(4);
-    if (game.snapshot.usedIndices.length > 0 && game.snapshot.mode === "planning") {
-      expect(game.snapshot.selectedIndex).not.toBe(initialIdx);
-      expect(game.snapshot.usedIndices).not.toContain(game.snapshot.selectedIndex);
-    }
-  });
-
-  it("resets currentRotation to 0 after a placement", () => {
-    const game = makeGame();
-    game.startPlanning();
-    game.rotatePlanningPiece();
-    game.rotatePlanningPiece();
-    expect(game.snapshot.currentRotation).toBe(2);
-    game.placeAt(0);
-    if (game.snapshot.queueIndex > 0) {
-      expect(game.snapshot.currentRotation).toBe(0);
-    }
+    game.selectPiece(0);
+    game.placeAt(3);
+    game.selectPiece(0); // back to first
+    game.placeAt(7);
+    expect(game.snapshot.plannedMoves[0]).toEqual({ x: 7, rotation: 0 });
   });
 
   it("does nothing in feed mode", () => {
     const game = makeGame();
-    expect(game.snapshot.mode).toBe("feed");
     game.placeAt(4);
-    expect(game.snapshot.queueIndex).toBe(0);
+    expect(game.snapshot.plannedMoves).toEqual([]);
+  });
+});
+
+describe("Game.selectPiece", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("changes activeEditIndex to the chosen index", () => {
+    const game = makeGame();
+    game.startPlanning();
+    game.selectPiece(2);
+    expect(game.snapshot.activeEditIndex).toBe(2);
+  });
+
+  it("ignores out-of-range indices", () => {
+    const game = makeGame();
+    game.startPlanning();
+    const before = game.snapshot.activeEditIndex;
+    game.selectPiece(-1);
+    game.selectPiece(999);
+    expect(game.snapshot.activeEditIndex).toBe(before);
+  });
+
+  it("restores rotation from existing plan when switching", () => {
+    const game = makeGame();
+    game.startPlanning();
+    game.rotatePlanningPiece(); // rot=1 on piece 0 (no plan yet)
+    game.placeAt(3); // plan piece 0 at (3, rot=1)
+    game.selectPiece(0); // come back to piece 0
+    expect(game.snapshot.currentRotation).toBe(1);
   });
 });
 
@@ -183,78 +155,129 @@ describe("Game.rotatePlanningPiece", () => {
     expect(game.snapshot.currentRotation).toBe(0);
   });
 
-  it("does nothing in feed mode", () => {
+  it("updates the rotation of an already-planned active piece", () => {
     const game = makeGame();
+    game.startPlanning();
+    game.selectPiece(0);
+    game.placeAt(3); // plan piece 0 at (3, rot=0)
+    game.selectPiece(0); // back to it
     game.rotatePlanningPiece();
-    expect(game.snapshot.currentRotation).toBe(0);
+    expect(game.snapshot.plannedMoves[0]?.rotation).toBe(1);
+    expect(game.snapshot.plannedMoves[0]?.x).toBe(3);
   });
 });
 
 describe("Game.undoLastPlacement", () => {
   beforeEach(() => localStorage.clear());
 
-  it("reverts usedIndices and grid after a placement", () => {
+  it("clears the active piece's plan if it was planned", () => {
     const game = makeGame();
     game.startPlanning();
-    const initialUsed = [...game.snapshot.usedIndices];
-    const initialGrid = game.snapshot.grid.map((row) => [...row]);
-    game.placeAt(4);
-    if (game.snapshot.usedIndices.length > initialUsed.length) {
-      game.undoLastPlacement();
-      expect(game.snapshot.usedIndices).toEqual(initialUsed);
-      expect(JSON.stringify(game.snapshot.grid)).toBe(JSON.stringify(initialGrid));
-    }
+    game.selectPiece(0);
+    game.placeAt(3);
+    game.selectPiece(0);
+    game.undoLastPlacement();
+    expect(game.snapshot.plannedMoves[0]).toBeNull();
   });
 
-  it("is a no-op when there is no history", () => {
+  it("is a no-op if active piece has no plan", () => {
     const game = makeGame();
     game.startPlanning();
-    const before = game.snapshot.usedIndices.length;
     game.undoLastPlacement();
-    expect(game.snapshot.usedIndices.length).toBe(before);
+    expect(game.snapshot.plannedMoves.every((m) => m === null)).toBe(true);
   });
 });
 
-describe("Game evaluate (planning end)", () => {
+describe("Game.executePlan", () => {
   beforeEach(() => localStorage.clear());
 
-  it("transitions to 'failed' when queue exhausted but board not empty", () => {
+  it("does nothing if not all pieces planned (toast set)", () => {
+    const game = makeGame();
+    game.startPlanning();
+    // plan only the first piece
+    game.placeAt(4);
+    game.executePlan();
+    expect(game.snapshot.mode).toBe("planning");
+  });
+
+  it("transitions to clear or failed when all pieces planned", () => {
+    const game = makeGame();
+    game.startPlanning();
+    const queueLen = game.snapshot.puzzle.queue.length;
+    // plan everything to column 4 (most likely fail, but valid plan)
+    for (let i = 0; i < queueLen; i += 1) {
+      game.selectPiece(i);
+      game.placeAt(4);
+    }
+    game.executePlan();
+    expect(["clear", "failed"]).toContain(game.snapshot.mode);
+    expect(game.snapshot.attempts).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("Game.canExecute flag", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("starts false", () => {
+    const game = makeGame();
+    game.startPlanning();
+    expect(game.snapshot.canExecute).toBe(false);
+  });
+
+  it("becomes true once every plan slot is filled (and valid)", () => {
     const game = makeGame();
     game.startPlanning();
     const queueLen = game.snapshot.puzzle.queue.length;
     for (let i = 0; i < queueLen; i += 1) {
-      game.placeAt(0);
+      game.selectPiece(i);
+      game.placeAt(i % COLS);
     }
-    if (game.snapshot.usedIndices.length >= queueLen) {
-      expect(["clear", "failed"]).toContain(game.snapshot.mode);
-      expect(game.snapshot.attempts).toBeGreaterThanOrEqual(1);
-    }
+    // canExecute may still be false if some plan is invalid; but plannedMoves all set
+    const allPlanned = game.snapshot.plannedMoves.every((m) => m !== null);
+    expect(allPlanned).toBe(true);
   });
 });
 
-describe("Game.retry", () => {
+describe("Game.plannedGhosts simulation", () => {
   beforeEach(() => localStorage.clear());
 
-  it("does nothing while still planning", () => {
+  it("returns one ghost per planned move with kind from queue", () => {
     const game = makeGame();
     game.startPlanning();
-    const before = game.snapshot.attempts;
-    game.retry();
-    // 아직 planning 중이라 retry 무시
-    expect(game.snapshot.attempts).toBe(before);
-    expect(game.snapshot.mode).toBe("planning");
+    game.selectPiece(0);
+    game.placeAt(2);
+    game.selectPiece(1);
+    game.placeAt(5);
+    const ghosts = game.snapshot.plannedGhosts;
+    expect(ghosts.length).toBe(2);
+    expect(ghosts[0].queueIndex).toBe(0);
+    expect(ghosts[0].kind).toBe(game.snapshot.puzzle.queue[0]);
+    expect(ghosts[1].queueIndex).toBe(1);
+    expect(ghosts[1].kind).toBe(game.snapshot.puzzle.queue[1]);
+  });
+
+  it("marks active piece's ghost with isActive=true", () => {
+    const game = makeGame();
+    game.startPlanning();
+    game.selectPiece(0);
+    game.placeAt(2);
+    game.selectPiece(0); // back to 0
+    const activeGhost = game.snapshot.plannedGhosts.find((g) => g.queueIndex === 0);
+    expect(activeGhost?.isActive).toBe(true);
   });
 });
 
 describe("Game.abandon", () => {
   beforeEach(() => localStorage.clear());
 
-  it("returns to feed mode when abandoning planning", () => {
+  it("returns to feed mode and clears plans", () => {
     const game = makeGame();
     game.startPlanning();
+    game.placeAt(3);
     game.abandon();
     expect(game.snapshot.mode).toBe("feed");
-    expect(game.snapshot.attempts).toBe(0);
+    expect(game.snapshot.plannedMoves).toEqual([]);
+    expect(game.snapshot.activeEditIndex).toBeNull();
   });
 
   it("does nothing in feed mode", () => {

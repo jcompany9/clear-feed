@@ -91,33 +91,50 @@ Vitest + happy-dom 기반. 순수 로직만 자동 테스트 (Canvas 렌더러�
 - 결정론적 시드 기반이라 백엔드 0개로 P2P 공유 가능
 - 추후: 진짜 맵 에디터 (천장/바닥/큐 직접 편집), 닉네임, 일일 챌린지
 
-## 게임 모드: Planning ("Tetris Golf")
+## 게임 모드: Planning ("Tetris Golf") — Plan-then-Execute 모델
 
-골프 메타포 기반 계획형 퍼즐.
-- **플레이**: 보드 컬럼 클릭 → 현재 큐 피스가 그 컬럼에 자동 떨어짐 (회전: R 키)
-- **승리**: 모든 큐 피스 배치 후 **보드가 완전히 비워져야 함** (모든 사전 블록 클리어)
-- **실패**: 큐 다 썼는데 블록 남음 → 보드 리셋, 시도 횟수 +1, 재계획
-- **스코어**: 시도 횟수 (낮을수록 좋음). 1회 = `HOLE IN ONE`, N회 = `SOLVED IN N`
-- **솔버블 보장**: 사용자가 직접 풀이를 짜기 때문에 별도 솔버 불필요
+진짜 계획형 퍼즐. 모든 피스를 미리 배치 계획한 후, START 버튼으로 일괄 실행.
 
-### 코드 흐름
-- `Game.startPlanning()` — feed → planning 진입, 보드 리셋
-- `Game.selectPiece(i)` — 핸드의 i번째 피스 선택 (사용된 건 무시)
-- `Game.placeAt(col)` — 현재 선택 피스를 col에 떨어뜨림. usedIndices에 인덱스 추가, advanceSelection
-- `Game.rotatePlanningPiece()` — 선택된 피스 회전 0~3 토글
-- `Game.undoLastPlacement()` — 마지막 배치 무르기 (스냅샷 기반)
-- `Game.setHoverColumn(col | null)` — 호버 미리보기용
-- 큐 모두 사용 시 → `evaluate()` 자동 호출 → mode = `clear` 또는 `failed`
-- `Game.retry()` — failed에서 같은 퍼즐 재시도 (attempts 누적)
-- `Game.advance()` — clear에서 다음 퍼즐로
+### 흐름
+1. **planning**: 카드 탭으로 active 피스 선택, 보드 클릭/드래그로 그 피스의 계획 위치 설정. 모든 ghost가 동시에 보드에 보임 (시뮬레이션 결과 기준).
+2. **canExecute**: 모든 plannedMoves가 채워지면 START 버튼 활성화 (`▶ START`).
+3. **executePlan()**: 큐 순서대로 각 피스를 떨어뜨려 grid에 적용 + 라인 클리어. 마지막에 evaluate.
+4. **clear / failed**: 보드가 완전히 비면 `HOLE IN ONE` (1회 시도) / `SOLVED IN N`. 안 비면 `MISS — TRY N+1`.
 
-### 핸드 UI (5+ 카드)
-- 화면 상단 (라벨 아래, 보드 위) 에 큐 전체를 카드 형태로 표시
-- 선택된 카드: `--gb-accent` 굵은 외곽선
-- 사용된 카드: 반투명 + 대각선
-- 클릭: 선택 변경 (사용 안 한 것만)
-- 기본은 자동 진행 (배치 후 `advanceSelection`이 다음 미사용으로 이동)
-- 사용자가 다른 순서로 풀고 싶으면 카드 클릭으로 override 가능
+### 핵심 데이터
+- `plannedMoves: Array<PlannedMove | null>` — 큐 길이만큼. null = 미계획
+- `activeEditIndex: number | null` — 현재 편집 중인 큐 인덱스
+- `currentRotation: number` — active 피스의 회전 (0~3)
+- `plannedGhosts: PlannedGhost[]` (snapshot only) — 시뮬레이션 결과, 각 피스가 실제로 떨어질 위치들
+
+### 시뮬레이션
+`computePlannedGhosts()`가 매 snapshot마다 실행:
+1. 사전 grid 복제
+2. 큐 순서대로 plannedMoves 적용 — 각 피스 중력 시뮬, 셀 잠금, 라인 클리어
+3. 각 단계의 안착 셀들을 ghost로 반환
+4. 만약 어떤 피스가 충돌해 떨어질 수 없으면 `valid: false`
+
+이 시뮬레이션이 핸드/보드의 visual feedback과 `canExecute` 체크의 single source of truth.
+
+### 핸드 UI 상태
+- **Active**: `--gb-accent` 굵은 외곽선
+- **Planned (not active)**: 일반 ink 외곽선 + 하단 작은 success 색 마커
+- **Unplanned**: inkMute (옅은) 외곽선
+
+### START 버튼
+- 화면 하단 중앙, 140×32 픽셀
+- `canExecute` true: accent 채움 + `▶ START` 라벨
+- false: 회색 + `PLAN ALL`
+- 클릭/탭 또는 Enter 키 = `executePlan()`
+
+### 입력 정리
+- 보드 탭/드래그 → active 피스의 plannedMoves 업데이트, 자동으로 다음 미계획 피스로 이동
+- 핸드 카드 탭 → activeEditIndex 변경
+- R / Space / ↑ → active 피스 회전 (이미 계획된 거면 회전만 갱신)
+- U / Backspace → active 피스 계획 취소 (다시 미계획)
+- Enter / START 버튼 → executePlan
+- ↑ 큰 스와이프 / Esc → abandon
+- ↓ 큰 스와이프 → undo
 
 ### 상태 머신
 ```
