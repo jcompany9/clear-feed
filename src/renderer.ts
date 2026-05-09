@@ -122,8 +122,8 @@ export class Renderer {
     //   header → mission → [BOARD | 큐 우측 세로] → ◀↻▼▶ 단일 행
     if (snapshot.mode === "planning") {
       const missionGap = 18;
-      const queueColumnWidth = 56;  // 큐 카드 세로 스택 폭 + 8px 갭
-      const controlsHeight = 70;    // 4-button 단일 행 + 마진
+      const queueColumnWidth = 56;
+      const controlsHeight = 130;   // 콘솔 분리형: 2-row × 2-cluster
       board = new DOMRect(
         board.x,
         board.y + missionGap,
@@ -222,44 +222,56 @@ export class Renderer {
     }
   }
 
-  /** Planning 모드 컨트롤 버튼 — Layout B: 5-button 단일 행 (◀ ↻ ▶ ▼ ⏬)
-   *  ◀ ↻ ▶ : 위치/회전 (D-pad)
-   *  ▼     : 슬로우 드롭 (1칸 / 바닥에서 잠금) — 색상 변화
-   *  ⏬     : 빠른 드롭 (즉시 바닥 + 잠금) — 빨간 강조
+  /** Planning 모드 컨트롤 — 콘솔 분리형 (좌: 방향, 우: 액션)
+   *
+   *      좌측 클러스터              우측 클러스터
+   *         [↻]                       [▼]
+   *       [◀] [▶]                    [⏬]
+   *
+   *  좌: 회전 + 좌우 이동 (가장 빈번한 동작 — 왼손 엄지)
+   *  우: 슬로우 드롭 + 빠른 잠금 (마무리 — 오른손 엄지)
    */
   private renderControlButtons(snapshot: GameSnapshot, y: number): void {
     this.controlButtons = [];
     const screen = this.screenRect();
     const gap = 6;
-    const usableW = screen.width - 24;
-    const computed = Math.floor((usableW - 4 * gap) / 5);
-    const boxSize = Math.max(40, Math.min(60, computed));
-    const totalW = 5 * boxSize + 4 * gap;
-    const startX = screen.x + (screen.width - totalW) / 2;
+    const margin = 12;
+    // 화면 폭에 맞춰 버튼 사이즈 결정 (좌 2개 가로 + 우 1개 + margin/gap)
+    const computed = Math.floor((screen.width - 2 * margin - 3 * gap) / 4);
+    const boxSize = Math.max(44, Math.min(60, computed));
 
+    // ── 좌측 클러스터 (방향) ──
+    const leftClusterW = 2 * boxSize + gap;
+    const leftBaseX = screen.x + margin;
+    // 회전 (위, 좌측 클러스터 가운데 정렬)
+    const rotateX = leftBaseX + (leftClusterW - boxSize) / 2;
+    this.controlButtons.push({ x: rotateX, y, w: boxSize, h: boxSize, action: "rotate" });
+    this.drawControlButtonStyled(rotateX, y, boxSize, "↻", TOKENS.bgPanel, TOKENS.ink);
+    // ◀ ▶ (아래)
+    const moveY = y + boxSize + gap;
+    this.controlButtons.push({ x: leftBaseX, y: moveY, w: boxSize, h: boxSize, action: "left" });
+    this.drawControlButtonStyled(leftBaseX, moveY, boxSize, "◀", TOKENS.bgPanel, TOKENS.ink);
+    const rightX = leftBaseX + boxSize + gap;
+    this.controlButtons.push({ x: rightX, y: moveY, w: boxSize, h: boxSize, action: "right" });
+    this.drawControlButtonStyled(rightX, moveY, boxSize, "▶", TOKENS.bgPanel, TOKENS.ink);
+
+    // ── 우측 클러스터 (액션) ──
     const downReadyToLock = !!snapshot.current && this.isPieceOnFloor(snapshot);
-    const layout: Array<{ action: PlanningControl; icon: string; bgToken: string; fgToken: string }> = [
-      { action: "left",     icon: "◀", bgToken: TOKENS.bgPanel, fgToken: TOKENS.ink },
-      { action: "rotate",   icon: "↻", bgToken: TOKENS.bgPanel, fgToken: TOKENS.ink },
-      { action: "right",    icon: "▶", bgToken: TOKENS.bgPanel, fgToken: TOKENS.ink },
-      {
-        action: "down",
-        icon: downReadyToLock ? "⏎" : "▼",
-        bgToken: downReadyToLock ? TOKENS.success : TOKENS.bgPanel,
-        fgToken: downReadyToLock ? TOKENS.bgPanel : TOKENS.ink,
-      },
-      { action: "hardDrop", icon: "⏬", bgToken: TOKENS.ink, fgToken: TOKENS.bgPanel },
-    ];
-    for (let i = 0; i < layout.length; i += 1) {
-      const b = layout[i];
-      const bx = startX + i * (boxSize + gap);
-      this.controlButtons.push({ x: bx, y, w: boxSize, h: boxSize, action: b.action });
-      if (b.action === "hardDrop") {
-        this.drawControlButtonWithPixel(bx, y, boxSize, Renderer.PIXEL_ARROW_DOWN, b.bgToken, b.fgToken);
-      } else {
-        this.drawControlButtonStyled(bx, y, boxSize, b.icon, b.bgToken, b.fgToken);
-      }
-    }
+    const rightBaseX = screen.x + screen.width - margin - boxSize;
+    // 슬로우 드롭 ▼ / ⏎ (위)
+    this.controlButtons.push({ x: rightBaseX, y, w: boxSize, h: boxSize, action: "down" });
+    this.drawControlButtonStyled(
+      rightBaseX,
+      y,
+      boxSize,
+      downReadyToLock ? "⏎" : "▼",
+      downReadyToLock ? TOKENS.success : TOKENS.bgPanel,
+      downReadyToLock ? TOKENS.bgPanel : TOKENS.ink,
+    );
+    // 하드 드롭 ⏬ (아래) — 픽셀 아트 + 흑백 인버스
+    const hardDropY = y + boxSize + gap;
+    this.controlButtons.push({ x: rightBaseX, y: hardDropY, w: boxSize, h: boxSize, action: "hardDrop" });
+    this.drawControlButtonWithPixel(rightBaseX, hardDropY, boxSize, Renderer.PIXEL_ARROW_DOWN, TOKENS.ink, TOKENS.bgPanel);
   }
 
   /** 픽셀 아트 아래 화살표 패턴 (7x7) — GB Color 톤에 맞는 두꺼운 삼각형 */
