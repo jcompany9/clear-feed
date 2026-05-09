@@ -103,13 +103,21 @@ export class Renderer {
   render(snapshot: GameSnapshot, now: number): void {
     this.background();
     this.renderTop(snapshot);
-    const board = this.boardRect();
+    let board = this.boardRect();
+    // Planning 모드: 큐 카드 영역만큼 보드 축소
+    if (snapshot.mode === "planning") {
+      const queueAreaHeight = 64; // 카드 영역 높이
+      board = new DOMRect(board.x, board.y, board.width, Math.max(80, board.height - queueAreaHeight));
+    }
     if (snapshot.mode === "feed") {
       this.renderFeed(snapshot, board, now);
     } else if (snapshot.mode === "editing") {
       this.renderEditor(snapshot, board);
     } else {
       this.renderBoard(snapshot, board, now, true);
+    }
+    if (snapshot.mode === "planning") {
+      this.renderQueueCards(snapshot, board.y + board.height + 10);
     }
     this.renderTouchTrail(snapshot);
     this.renderGestureHints(snapshot);
@@ -118,10 +126,78 @@ export class Renderer {
     this.renderScanlines();
   }
 
+  /** Planning 모드 큐 카드 — 모든 피스를 보드 아래에 가로로 표시 (used / current / future 상태) */
+  private renderQueueCards(snapshot: GameSnapshot, y: number): void {
+    const queue = snapshot.puzzle.queue;
+    if (queue.length === 0) return;
+    const screen = this.screenRect();
+    const gap = 4;
+    const usableW = screen.width - 24;
+    // 큐 길이에 맞춰 카드 크기 동적 계산 (28 ~ 48)
+    const computed = Math.floor((usableW - (queue.length - 1) * gap) / queue.length);
+    const boxSize = Math.max(28, Math.min(48, computed));
+    const totalW = queue.length * boxSize + (queue.length - 1) * gap;
+    const startX = screen.x + (screen.width - totalW) / 2;
+
+    for (let i = 0; i < queue.length; i += 1) {
+      const kind = queue[i];
+      const bx = startX + i * (boxSize + gap);
+      const by = y;
+      const isUsed = i < snapshot.queueIndex;
+      const isCurrent = i === snapshot.queueIndex;
+
+      // 카드 배경 (사용된 건 더 옅게)
+      this.ctx.fillStyle = resolveCssVar(isUsed ? TOKENS.bgScreen : TOKENS.bgPanel);
+      this.ctx.fillRect(bx, by, boxSize, boxSize);
+
+      // 미니 피스
+      const piece = createPiece(kind);
+      const cells = piece.cells;
+      const minX = Math.min(...cells.map((c) => c.x));
+      const maxX = Math.max(...cells.map((c) => c.x));
+      const minY = Math.min(...cells.map((c) => c.y));
+      const maxY = Math.max(...cells.map((c) => c.y));
+      const w = maxX - minX + 1;
+      const h = maxY - minY + 1;
+      const miniSize = Math.floor(Math.min((boxSize - 8) / w, (boxSize - 8) / h));
+      const offsetX = bx + (boxSize - w * miniSize) / 2;
+      const offsetY = by + (boxSize - h * miniSize) / 2;
+      const colors = PIECE_COLORS[kind];
+      this.ctx.globalAlpha = isUsed ? 0.35 : 1;
+      cells.forEach((c) => {
+        const px = offsetX + (c.x - minX) * miniSize;
+        const py = offsetY + (c.y - minY) * miniSize;
+        this.ctx.fillStyle = resolveCssVar(colors.fill);
+        this.ctx.fillRect(px, py, miniSize, miniSize);
+        this.ctx.strokeStyle = resolveCssVar(colors.stroke);
+        this.ctx.lineWidth = 1;
+        this.ctx.strokeRect(px + 0.5, py + 0.5, miniSize - 1, miniSize - 1);
+      });
+      this.ctx.globalAlpha = 1;
+
+      // 외곽선 (현재 = accent 굵게)
+      if (isCurrent) {
+        this.pixelStroke(bx, by, boxSize, boxSize, 2, resolveCssVar(TOKENS.accent));
+      } else {
+        this.pixelStroke(bx, by, boxSize, boxSize, 1, resolveCssVar(TOKENS.ink));
+      }
+
+      // 사용된 카드: 대각선
+      if (isUsed) {
+        this.ctx.strokeStyle = resolveCssVar(TOKENS.inkSoft);
+        this.ctx.lineWidth = 1.5;
+        this.ctx.beginPath();
+        this.ctx.moveTo(bx + 4, by + 4);
+        this.ctx.lineTo(bx + boxSize - 4, by + boxSize - 4);
+        this.ctx.stroke();
+      }
+    }
+  }
+
   private renderEditor(snapshot: GameSnapshot, board: DOMRect): void {
     const screen = this.screenRect();
-    // 화면 아래 120px은 툴바 + 상태배너 + 버튼 + 힌트용 (모바일 큰 터치 영역)
-    const reservedBottom = 120;
+    // 화면 아래 180px은 툴바 2줄 + 상태배너 + 버튼 + 힌트용 (큰 터치 영역)
+    const reservedBottom = 180;
     const limit = screen.y + screen.height - reservedBottom;
     const usableHeight = Math.max(40, Math.min(board.height, limit - board.y));
     const cell = Math.floor(Math.min(board.width / COLS, usableHeight / ROWS));
@@ -201,11 +277,12 @@ export class Renderer {
     this.editRotateButton = null;
     const screen = this.screenRect();
     const tools: Array<"cell" | PieceKind> = ["cell", "I", "O", "T", "L", "J", "S", "Z"];
-    const boxSize = 30;
-    const gap = 3;
-    // 툴바: 8 도구 + 4px 간격 + ROTATE 버튼
-    const rotateGap = 8;
-    const totalW = tools.length * boxSize + (tools.length - 1) * gap + rotateGap + boxSize;
+    const gap = 4;
+    // 동적 크기: 8 도구가 화면에 들어가도록 계산 (28 ~ 48 범위)
+    const usableW = screen.width - 24; // 좌우 12px 여백
+    const computed = Math.floor((usableW - (tools.length - 1) * gap) / tools.length);
+    const boxSize = Math.max(28, Math.min(48, computed));
+    const totalW = tools.length * boxSize + (tools.length - 1) * gap;
     const startX = screen.x + (screen.width - totalW) / 2;
 
     for (let i = 0; i < tools.length; i += 1) {
@@ -261,20 +338,20 @@ export class Renderer {
       }
     }
 
-    // ROTATE 버튼 (마지막 도구 박스 오른쪽에 약간 떨어져서)
-    const rotateX = startX + tools.length * boxSize + (tools.length - 1) * gap + rotateGap;
-    const rotateY = toolbarY;
-    this.editRotateButton = { x: rotateX, y: rotateY, w: boxSize, h: boxSize };
+    // ROTATE 버튼 — 도구 줄 아래 별도 행에 가운데 정렬 (모바일 큰 터치 영역)
+    const rotateY = toolbarY + boxSize + 6;
+    const rotateSize = boxSize;
+    const rotateX = screen.x + (screen.width - rotateSize) / 2;
+    this.editRotateButton = { x: rotateX, y: rotateY, w: rotateSize, h: rotateSize };
     const rotateEnabled = snapshot.editTool !== "cell";
     this.ctx.fillStyle = resolveCssVar(rotateEnabled ? TOKENS.bgPanel : TOKENS.bgScreen);
-    this.ctx.fillRect(rotateX, rotateY, boxSize, boxSize);
-    this.pixelStroke(rotateX, rotateY, boxSize, boxSize, 1, resolveCssVar(TOKENS.ink));
-    // 회전 아이콘 — 단순화한 ↻ (산세리프 사용, 픽셀 폰트는 ↻ 미지원 가능)
-    this.ctx.font = `bold 18px sans-serif`;
+    this.ctx.fillRect(rotateX, rotateY, rotateSize, rotateSize);
+    this.pixelStroke(rotateX, rotateY, rotateSize, rotateSize, 1, resolveCssVar(TOKENS.ink));
+    this.ctx.font = `bold 20px sans-serif`;
     this.ctx.textAlign = "center";
     this.ctx.textBaseline = "middle";
     this.ctx.fillStyle = resolveCssVar(rotateEnabled ? TOKENS.ink : TOKENS.inkMute);
-    this.ctx.fillText("↻", rotateX + boxSize / 2, rotateY + boxSize / 2 + 1);
+    this.ctx.fillText("↻", rotateX + rotateSize / 2, rotateY + rotateSize / 2 + 1);
     this.ctx.textAlign = "left";
     this.ctx.textBaseline = "alphabetic";
   }
