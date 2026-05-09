@@ -118,19 +118,17 @@ export class Renderer {
     this.background();
     this.renderTop(snapshot);
     let board = this.boardRect();
-    // Planning 모드 레이아웃 (위에서 아래로):
-    //   header → mission → 큐 카드 → 보드 → rotate 버튼 → ◀▼▶ 버튼
+    // Planning 모드 Layout B:
+    //   header → mission → [BOARD | 큐 우측 세로] → ◀↻▼▶ 단일 행
     if (snapshot.mode === "planning") {
       const missionGap = 18;
-      const queueAreaHeight = 64;     // 큐 카드 영역 (보드 위에 위치)
-      const controlsHeight = 130;     // rotate 행 + 3-button 행 + 마진
-      const newBoardTop = board.y + missionGap + queueAreaHeight;
-      const newBoardEnd = board.y + board.height - controlsHeight;
+      const queueColumnWidth = 56;  // 큐 카드 세로 스택 폭 + 8px 갭
+      const controlsHeight = 70;    // 4-button 단일 행 + 마진
       board = new DOMRect(
         board.x,
-        newBoardTop,
-        board.width,
-        Math.max(80, newBoardEnd - newBoardTop),
+        board.y + missionGap,
+        Math.max(120, board.width - queueColumnWidth - 12),
+        Math.max(80, board.height - missionGap - controlsHeight),
       );
     }
     if (snapshot.mode === "feed") {
@@ -141,9 +139,9 @@ export class Renderer {
       this.renderBoard(snapshot, board, now, true);
     }
     if (snapshot.mode === "planning") {
-      // 큐 카드: 보드 ABOVE (사용자 mockup에 맞춤)
-      this.renderQueueCards(snapshot, board.y - 56);
-      // 버튼: 보드 BELOW
+      // Layout B: 큐 카드는 보드 우측 세로 스택
+      this.renderQueueCards(snapshot, board);
+      // 버튼: 보드 BELOW (단일 행)
       this.renderControlButtons(snapshot, board.y + board.height + 10);
     } else {
       this.controlButtons = [];
@@ -155,23 +153,24 @@ export class Renderer {
     this.renderScanlines();
   }
 
-  /** Planning 모드 큐 카드 — 모든 피스를 보드 아래에 가로로 표시 (used / current / future 상태) */
-  private renderQueueCards(snapshot: GameSnapshot, y: number): void {
+  /** Planning 모드 큐 카드 — Layout B: 보드 우측 세로 스택 (used / current / future 상태) */
+  private renderQueueCards(snapshot: GameSnapshot, board: DOMRect): void {
     const queue = snapshot.puzzle.queue;
     if (queue.length === 0) return;
     const screen = this.screenRect();
     const gap = 4;
-    const usableW = screen.width - 24;
-    // 큐 길이에 맞춰 카드 크기 동적 계산 (28 ~ 48)
-    const computed = Math.floor((usableW - (queue.length - 1) * gap) / queue.length);
-    const boxSize = Math.max(28, Math.min(48, computed));
-    const totalW = queue.length * boxSize + (queue.length - 1) * gap;
-    const startX = screen.x + (screen.width - totalW) / 2;
+    const slotX = board.x + board.width + 8;
+    const slotW = Math.max(28, Math.min(52, screen.x + screen.width - slotX - 4));
+    const computedH = Math.floor((board.height - (queue.length - 1) * gap) / queue.length);
+    const slotH = Math.max(28, Math.min(slotW, computedH));
+    const totalH = queue.length * slotH + (queue.length - 1) * gap;
+    const startY = board.y + Math.max(0, (board.height - totalH) / 2);
 
     for (let i = 0; i < queue.length; i += 1) {
       const kind = queue[i];
-      const bx = startX + i * (boxSize + gap);
-      const by = y;
+      const boxSize = slotH;
+      const bx = slotX + (slotW - boxSize) / 2;
+      const by = startY + i * (slotH + gap);
       const isUsed = i < snapshot.queueIndex;
       const isCurrent = i === snapshot.queueIndex;
 
@@ -223,39 +222,31 @@ export class Renderer {
     }
   }
 
-  /** Planning 모드 컨트롤 버튼 — D-pad: rotate 단독 행 + ◀▼▶ 행
-   *  ▼ 버튼은 피스 상태에 따라 색상 변화 (공중=회색 슬라이드 / 바닥=초록 잠금)
+  /** Planning 모드 컨트롤 버튼 — Layout B: 4-button 단일 행 (◀ ↻ ▼ ▶)
+   *  ▼ 버튼은 피스 상태에 따라 변화 (공중=▼ 회색 1칸 내림 / 바닥=⏎ 초록 잠금)
    */
   private renderControlButtons(snapshot: GameSnapshot, y: number): void {
     this.controlButtons = [];
     const screen = this.screenRect();
     const gap = 8;
     const usableW = screen.width - 24;
-    // 3-button 행 기준으로 사이즈 계산 (rotate는 같은 사이즈로)
-    const computed = Math.floor((usableW - 2 * gap) / 3);
+    const computed = Math.floor((usableW - 3 * gap) / 4);
     const boxSize = Math.max(44, Math.min(60, computed));
+    const totalW = 4 * boxSize + 3 * gap;
+    const startX = screen.x + (screen.width - totalW) / 2;
 
-    // ── 1행: rotate 단독, 가운데 정렬
-    const rotateX = screen.x + (screen.width - boxSize) / 2;
-    const rotateY = y;
-    this.controlButtons.push({ x: rotateX, y: rotateY, w: boxSize, h: boxSize, action: "rotate" });
-    this.drawControlButton(rotateX, rotateY, boxSize, "↻", false);
-
-    // ── 2행: ◀ ▼ ▶
-    const row2Y = rotateY + boxSize + 6;
-    const totalW3 = 3 * boxSize + 2 * gap;
-    const row2StartX = screen.x + (screen.width - totalW3) / 2;
-    const downReadyToLock = !!snapshot.current && /^playing$|^planning$/.test(snapshot.mode) && this.isPieceOnFloor(snapshot);
+    const downReadyToLock = !!snapshot.current && this.isPieceOnFloor(snapshot);
     const layout: Array<{ action: PlanningControl; icon: string; emphasize: boolean }> = [
       { action: "left", icon: "◀", emphasize: false },
+      { action: "rotate", icon: "↻", emphasize: false },
       { action: "down", icon: downReadyToLock ? "⏎" : "▼", emphasize: downReadyToLock },
       { action: "right", icon: "▶", emphasize: false },
     ];
     for (let i = 0; i < layout.length; i += 1) {
       const b = layout[i];
-      const bx = row2StartX + i * (boxSize + gap);
-      this.controlButtons.push({ x: bx, y: row2Y, w: boxSize, h: boxSize, action: b.action });
-      this.drawControlButton(bx, row2Y, boxSize, b.icon, b.emphasize);
+      const bx = startX + i * (boxSize + gap);
+      this.controlButtons.push({ x: bx, y, w: boxSize, h: boxSize, action: b.action });
+      this.drawControlButton(bx, y, boxSize, b.icon, b.emphasize);
     }
   }
 

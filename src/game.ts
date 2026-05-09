@@ -272,15 +272,24 @@ export class Game {
     }
   }
 
+  /** 한 칸 아래로 (soft drop). 더 못 내려가면 무시 — 잠금은 dropCurrent로. */
+  moveDown(): void {
+    if (this.mode !== "planning" || !this.currentPiece) return;
+    const moved = { ...this.currentPiece, y: this.currentPiece.y + 1 };
+    if (this.canPlace(moved)) {
+      this.currentPiece = moved;
+      this.sound.play("move");
+    }
+  }
+
   /**
-   * 똑똑한 ▼ 버튼: 공중에 떠 있으면 슬라이드, 바닥/스택 위에 있으면 잠금.
-   * 첫 탭에 슬라이드 → 사용자가 좌/우/회전으로 미세조정 → 두 번째 탭에 잠금.
+   * 똑똑한 ▼ 단일 탭: 공중이면 1칸 아래로, 바닥에 있으면 잠금.
    */
   dropOrLock(): void {
     if (this.mode !== "planning" || !this.currentPiece) return;
     const canFall = this.canPlace({ ...this.currentPiece, y: this.currentPiece.y + 1 });
     if (canFall) {
-      this.slideToFloor();
+      this.moveDown();
     } else {
       this.dropCurrent();
     }
