@@ -39,15 +39,30 @@ export function createFeedPuzzle(seed: number, challenge = false): Puzzle {
 }
 
 function adjustQueueForMath(grid: Cell[][], queue: PieceKind[], originalLimit: number, rng: Rng): { queue: PieceKind[]; length: number } {
-  let cellCount = 0;
-  for (const row of grid) for (const c of row) if (c !== null && c !== "wall") cellCount += 1;
-  // (cells + 4q) % 10 === 0 만족하는 q 후보 (1~10 범위, 본 게임 분량)
+  // 셀 수가 홀수면 무작위 셀 1개 제거해서 짝수로 (4q는 항상 짝수라 홀수에선 절대 10 배수 못 만듦)
+  let cellCount = countNonWallCells(grid);
+  if (cellCount % 2 === 1) {
+    const filled: Array<{ x: number; y: number }> = [];
+    for (let y = 0; y < grid.length; y += 1) {
+      for (let x = 0; x < grid[y].length; x += 1) {
+        const v = grid[y][x];
+        if (v !== null && v !== "wall") filled.push({ x, y });
+      }
+    }
+    if (filled.length > 0) {
+      const pick = filled[rng.int(0, filled.length - 1)];
+      grid[pick.y][pick.x] = null;
+      cellCount -= 1;
+    }
+  }
+
+  // (cells + 4q) % 10 === 0 만족하는 q 후보 (1~10 범위)
   const candidates: number[] = [];
   for (let q = 1; q <= 10; q += 1) {
     if ((cellCount + q * 4) % 10 === 0) candidates.push(q);
   }
   if (candidates.length === 0) {
-    // 셀이 홀수 등 어떤 q로도 안 떨어지면 그대로 (드문 케이스)
+    // 안전장치 — 짝수 보정 후엔 거의 도달 불가 (cells가 0인 경우 등)
     return { queue, length: originalLimit };
   }
   // 원래 movesLimit과 가장 가까운 후보 선택 (사용자 체감 난이도 유지)
@@ -179,6 +194,12 @@ function cleanTopPressure(grid: Cell[][]): void {
   for (let y = 0; y < 8; y += 1) {
     for (let x = 0; x < COLS; x += 1) grid[y][x] = null;
   }
+}
+
+function countNonWallCells(grid: Cell[][]): number {
+  let n = 0;
+  for (const row of grid) for (const c of row) if (c !== null && c !== "wall") n += 1;
+  return n;
 }
 
 function emptyGrid(): Cell[][] {
