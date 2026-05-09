@@ -254,8 +254,61 @@ export class Renderer {
       const b = layout[i];
       const bx = startX + i * (boxSize + gap);
       this.controlButtons.push({ x: bx, y, w: boxSize, h: boxSize, action: b.action });
-      this.drawControlButtonStyled(bx, y, boxSize, b.icon, b.bgToken, b.fgToken);
+      if (b.action === "hardDrop") {
+        this.drawControlButtonWithPixel(bx, y, boxSize, Renderer.PIXEL_ARROW_DOWN, b.bgToken, b.fgToken);
+      } else {
+        this.drawControlButtonStyled(bx, y, boxSize, b.icon, b.bgToken, b.fgToken);
+      }
     }
+  }
+
+  /** 픽셀 아트 아래 화살표 패턴 (7x7) — GB Color 톤에 맞는 두꺼운 삼각형 */
+  private static PIXEL_ARROW_DOWN: number[][] = [
+    [1, 1, 1, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 1],
+    [0, 1, 1, 1, 1, 1, 0],
+    [0, 1, 1, 1, 1, 1, 0],
+    [0, 0, 1, 1, 1, 0, 0],
+    [0, 0, 1, 1, 1, 0, 0],
+    [0, 0, 0, 1, 0, 0, 0],
+  ];
+
+  private drawPixelPattern(x: number, y: number, buttonSize: number, pattern: number[][], color: string): void {
+    this.ctx.fillStyle = color;
+    const rows = pattern.length;
+    const cols = pattern[0].length;
+    const iconSize = buttonSize * 0.6;
+    const cellW = iconSize / cols;
+    const cellH = iconSize / rows;
+    const offsetX = x + (buttonSize - iconSize) / 2;
+    const offsetY = y + (buttonSize - iconSize) / 2;
+    for (let py = 0; py < rows; py += 1) {
+      for (let px = 0; px < cols; px += 1) {
+        if (pattern[py][px]) {
+          this.ctx.fillRect(
+            Math.floor(offsetX + px * cellW),
+            Math.floor(offsetY + py * cellH),
+            Math.ceil(cellW),
+            Math.ceil(cellH),
+          );
+        }
+      }
+    }
+  }
+
+  private drawControlButtonWithPixel(x: number, y: number, size: number, pattern: number[][], bgToken: string, fgToken: string): void {
+    // 3D 픽셀 버튼 베이스 (drawControlButtonStyled와 동일)
+    this.ctx.fillStyle = resolveCssVar(bgToken);
+    this.ctx.fillRect(x, y, size, size);
+    this.ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+    this.ctx.fillRect(x + 1, y + 1, size - 2, 2);
+    this.ctx.fillRect(x + 1, y + 1, 2, size - 2);
+    this.ctx.fillStyle = "rgba(0, 0, 0, 0.22)";
+    this.ctx.fillRect(x + 1, y + size - 3, size - 2, 2);
+    this.ctx.fillRect(x + size - 3, y + 1, 2, size - 2);
+    this.pixelStroke(x, y, size, size, 2, resolveCssVar(TOKENS.ink));
+    // 픽셀 아트 아이콘
+    this.drawPixelPattern(x, y, size, pattern, resolveCssVar(fgToken));
   }
 
   private drawControlButtonStyled(x: number, y: number, size: number, icon: string, bgToken: string, fgToken: string): void {
