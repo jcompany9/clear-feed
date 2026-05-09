@@ -259,10 +259,25 @@ export class Renderer {
   }
 
   private drawControlButtonStyled(x: number, y: number, size: number, icon: string, bgToken: string, fgToken: string): void {
+    // 베이스 채움
     this.ctx.fillStyle = resolveCssVar(bgToken);
     this.ctx.fillRect(x, y, size, size);
+
+    // 위/왼쪽 하이라이트 (1~2px) — 테트로미노 셀과 동일한 3D 픽셀 효과
+    this.ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+    this.ctx.fillRect(x + 1, y + 1, size - 2, 2);  // 윗선
+    this.ctx.fillRect(x + 1, y + 1, 2, size - 2);  // 좌선
+
+    // 아래/오른쪽 음영 (1~2px)
+    this.ctx.fillStyle = "rgba(0, 0, 0, 0.22)";
+    this.ctx.fillRect(x + 1, y + size - 3, size - 2, 2);  // 아래선
+    this.ctx.fillRect(x + size - 3, y + 1, 2, size - 2);  // 우선
+
+    // 외곽선 (2px ink)
     this.pixelStroke(x, y, size, size, 2, resolveCssVar(TOKENS.ink));
-    this.ctx.font = `bold 22px sans-serif`;
+
+    // 아이콘 — JetBrains Mono Bold (헤더 숫자와 통일)
+    this.ctx.font = `bold ${Math.floor(size * 0.46)}px ${FONT_MONO_BASE}`;
     this.ctx.textAlign = "center";
     this.ctx.textBaseline = "middle";
     this.ctx.fillStyle = resolveCssVar(fgToken);
