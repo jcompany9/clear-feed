@@ -392,6 +392,16 @@ describe("Editor — setEditQueueLength", () => {
 describe("Editor — generateEditedPuzzle", () => {
   beforeEach(() => localStorage.clear());
 
+  it("rejects empty board with 'PLACE BLOCKS FIRST' toast (status stays idle)", () => {
+    const game = makeGame();
+    game.enterEditor();
+    expect(game.snapshot.editGrid.flat().every((c) => c === null)).toBe(true);
+    game.generateEditedPuzzle();
+    expect(game.snapshot.editStatus).toBe("idle");
+    expect(game.snapshot.editFoundQueue).toBeNull();
+    expect(game.snapshot.animation.toast).toBe("PLACE BLOCKS FIRST");
+  });
+
   it("transitions status to 'ready' or 'no-solution' after generation", () => {
     const game = makeGame();
     game.enterEditor();

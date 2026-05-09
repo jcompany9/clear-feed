@@ -481,11 +481,15 @@ export class Renderer {
 
     if (snapshot.mode === "editing") {
       const screen = this.screenRect();
+      const hasBlocks = snapshot.editGrid.some((row) => row.some((c) => c !== null));
 
       // 상태 라벨 (배너)
       let statusLine = "TAP CELL TO TOGGLE";
       let statusColor: string = TOKENS.inkSoft;
-      if (snapshot.editStatus === "generating") {
+      if (!hasBlocks) {
+        statusLine = "EMPTY BOARD — PLACE BLOCKS";
+        statusColor = TOKENS.inkMute;
+      } else if (snapshot.editStatus === "generating") {
         statusLine = "SOLVING — PLEASE WAIT";
         statusColor = TOKENS.info;
       } else if (snapshot.editStatus === "ready") {
@@ -511,22 +515,26 @@ export class Renderer {
 
       const ready = snapshot.editStatus === "ready";
       const generating = snapshot.editStatus === "generating";
-      // 생성 중: 회색 배경 + 점멸하는 점들
-      const fillColor = generating
-        ? resolveCssVar(TOKENS.bgPanel)
-        : ready
-          ? resolveCssVar(TOKENS.success)
-          : resolveCssVar(TOKENS.accent);
+      const disabled = !hasBlocks || generating;
+      const fillColor = !hasBlocks
+        ? resolveCssVar(TOKENS.bgScreen)
+        : generating
+          ? resolveCssVar(TOKENS.bgPanel)
+          : ready
+            ? resolveCssVar(TOKENS.success)
+            : resolveCssVar(TOKENS.accent);
       this.ctx.fillStyle = fillColor;
       this.ctx.fillRect(btnX, btnY, btnW, btnH);
       this.pixelStroke(btnX, btnY, btnW, btnH, 2, resolveCssVar(TOKENS.ink));
       this.ctx.font = `bold 12px ${FONT_PIXEL_BASE}`;
       this.ctx.textBaseline = "middle";
-      this.ctx.fillStyle = generating
+      this.ctx.fillStyle = disabled
         ? resolveCssVar(TOKENS.inkMute)
         : resolveCssVar(TOKENS.bgPanel);
       let label: string;
-      if (generating) {
+      if (!hasBlocks) {
+        label = "PLACE BLOCKS";
+      } else if (generating) {
         // 점멸 점: . / .. / ... 으로 진행감
         const dots = ".".repeat((Math.floor(performance.now() / 250) % 3) + 1);
         label = `GENERATING${dots}`;

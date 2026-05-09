@@ -388,6 +388,17 @@ export class Game {
   generateEditedPuzzle(): void {
     if (this.mode !== "editing") return;
     if (this.editStatus === "generating") return; // 이미 진행 중이면 무시
+
+    // 빈 보드 거부 — 풀 게 없음
+    const hasBlocks = this.editGrid.some((row) => row.some((cell) => cell !== null));
+    if (!hasBlocks) {
+      this.editFoundQueue = null;
+      this.editStatus = "idle";
+      this.flashToast("PLACE BLOCKS FIRST");
+      this.sound.play("fail");
+      return;
+    }
+
     this.editStatus = "generating";
     this.editFoundQueue = null;
 
