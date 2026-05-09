@@ -91,22 +91,17 @@ Vitest + happy-dom 기반. 순수 로직만 자동 테스트 (Canvas 렌더러�
 - 결정론적 시드 기반이라 백엔드 0개로 P2P 공유 가능
 - 추후: 진짜 맵 에디터 (천장/바닥/큐 직접 편집), 닉네임, 일일 챌린지
 
-## 게임 모드: Sandwich
+## 게임 모드: Classic (현재)
 
-현재 게임의 정체성은 **샌드위치 모드** — 위쪽에 천장(고정 벽 + 구멍 패턴)이 추가된 테트리스 변종. 향후 UGC(사용자 배치 공유)와 결합해 "Tetris Reels" 컨셉 완성 예정.
+원조 테트리스 룰. 위쪽이 비어있고 아래쪽에 사전 깔린 블록 위에 피스를 쌓아 라인을 클리어. 목표 라인 수와 무브 제한은 시드별로 가변.
 
-### 데이터 모델
-- `Cell = PieceKind | "garbage" | "wall" | null` — `"wall"`이 천장 셀
-- 천장은 `puzzleGenerator.addCeiling()`이 `y=0`에 생성 (구멍 ≥3칸 보장)
-- 난이도별 벽 비율: Easy 0.45, Normal 0.55, Challenge 0.65
+### Sandwich 모드 (제거됨, 부분 인프라 보존)
+이전에 시도한 천장 메커니즘은 commit `e9e5641`에서 추가되었다가 이번에 generator 호출 + 함수 정의 제거로 비활성화됨. 다음 인프라는 향후 다른 용도로 재사용 가능해서 유지:
+- `Cell = PieceKind | "garbage" | "wall" | null` 의 `"wall"` 타입
+- `Game.clearLines()`의 wall row 제외 로직 (벽이 있는 줄은 클리어 안 됨)
+- `colors.ts`의 wall 컬러 페어, `renderer.ts`의 wall 평평 렌더 분기
 
-### 클리어 룰
-- `Game.clearLines()`는 벽이 있는 줄을 **클리어 후보에서 제외** — 천장은 영구 벽
-- 그 외엔 기존 라인 클리어 룰 그대로
-
-### 렌더
-- 벽 셀: `--gb-ink-soft` 평평 단색 (3D 입체감 없음, 일반 피스와 명확히 구분)
-- 일반 피스: 기존 그대로 (highlight + shadow inset)
+이 인프라가 있어 향후 **맵 에디터에서 사용자가 직접 벽 배치**하는 기능 추가 시 재활용 가능.
 
 ## 알려진 특이점
 

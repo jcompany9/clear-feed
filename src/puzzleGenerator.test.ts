@@ -53,41 +53,11 @@ describe("createFeedPuzzle", () => {
   });
 });
 
-describe("Sandwich ceiling", () => {
-  it("top row contains at least one wall", () => {
-    let foundWall = false;
-    for (let seed = 0; seed < 30; seed += 1) {
-      const puzzle = createFeedPuzzle(seed);
-      if (puzzle.grid[0].some((cell) => cell === "wall")) {
-        foundWall = true;
-        break;
-      }
-    }
-    expect(foundWall).toBe(true);
-  });
-
-  it("top row guarantees a passable gap of >=3 consecutive empty cells", () => {
-    for (let seed = 0; seed < 30; seed += 1) {
-      const puzzle = createFeedPuzzle(seed);
-      const ceiling = puzzle.grid[0];
-      let maxRun = 0;
-      let run = 0;
-      for (const cell of ceiling) {
-        if (cell === null) {
-          run += 1;
-          if (run > maxRun) maxRun = run;
-        } else {
-          run = 0;
-        }
-      }
-      expect(maxRun).toBeGreaterThanOrEqual(3);
-    }
-  });
-
-  it("walls only appear in the ceiling row (y=0), not anywhere else", () => {
+describe("Classic mode (no Sandwich ceiling)", () => {
+  it("does not contain wall cells anywhere in the grid", () => {
     for (let seed = 0; seed < 20; seed += 1) {
       const puzzle = createFeedPuzzle(seed);
-      for (let y = 1; y < ROWS; y += 1) {
+      for (let y = 0; y < ROWS; y += 1) {
         expect(puzzle.grid[y].some((cell) => cell === "wall")).toBe(false);
       }
     }
