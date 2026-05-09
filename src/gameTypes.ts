@@ -3,7 +3,7 @@ export const ROWS = 20;
 
 export type PieceKind = "I" | "O" | "T" | "L" | "J" | "S" | "Z";
 export type Difficulty = "Easy" | "Normal" | "Challenge";
-export type GameMode = "feed" | "planning" | "clear" | "failed";
+export type GameMode = "feed" | "planning" | "clear" | "failed" | "editing";
 
 export type Cell = PieceKind | "garbage" | "wall" | null;
 
@@ -67,4 +67,10 @@ export interface GameSnapshot {
   attempts: number;                  // 현재 퍼즐 시도 횟수 (실패 누적)
   queueIndex: number;                // 다음 떨어뜨릴 큐 인덱스
   ghostCells: Point[] | null;        // 현재 피스가 떨어질 안착 위치
+
+  // Editing 모드 전용 (UGC 에디터)
+  editGrid: Cell[][];                // 사용자 디자인 보드
+  editQueueLength: number;           // 큐 길이 설정 (1~10)
+  editFoundQueue: PieceKind[] | null;  // generate 후 발견된 큐
+  editStatus: "idle" | "generating" | "ready" | "no-solution";
 }

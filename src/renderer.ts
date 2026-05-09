@@ -36,6 +36,15 @@ export class Renderer {
     return col;
   }
 
+  /** 화면 좌표를 보드 셀 (col, row)로 변환. 보드 밖이면 null */
+  screenToCell(screenX: number, screenY: number): { col: number; row: number } | null {
+    if (this.boardCell <= 0) return null;
+    const col = Math.floor((screenX - this.boardOx) / this.boardCell);
+    const row = Math.floor((screenY - this.boardOy) / this.boardCell);
+    if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return null;
+    return { col, row };
+  }
+
   /** 보드 셀 한 칸 픽셀 크기 (드래그 픽셀 → 컬럼 변환용) */
   getCellSize(): number {
     return this.boardCell;
@@ -59,6 +68,8 @@ export class Renderer {
     const board = this.boardRect();
     if (snapshot.mode === "feed") {
       this.renderFeed(snapshot, board, now);
+    } else if (snapshot.mode === "editing") {
+      this.renderEditor(snapshot, board);
     } else {
       this.renderBoard(snapshot, board, now, true);
     }
@@ -67,6 +78,41 @@ export class Renderer {
     this.renderOverlays(snapshot, now);
     this.renderToast(snapshot, now);
     this.renderScanlines();
+  }
+
+  private renderEditor(snapshot: GameSnapshot, board: DOMRect): void {
+    const cell = Math.floor(Math.min(board.width / COLS, board.height / ROWS));
+    const ox = board.x + (board.width - cell * COLS) / 2;
+    const oy = board.y + (board.height - cell * ROWS) / 2;
+    const boardW = cell * COLS;
+    const boardH = cell * ROWS;
+    this.boardOx = ox;
+    this.boardOy = oy;
+    this.boardCell = cell;
+
+    // 보드 배경 (크림)
+    this.ctx.fillStyle = resolveCssVar(TOKENS.bgBoard);
+    this.ctx.fillRect(ox, oy, boardW, boardH);
+
+    // 그리드 (편집 모드에서는 더 진하게 — 셀 경계 명확)
+    this.ctx.strokeStyle = "rgba(26, 26, 46, 0.18)";
+    this.ctx.lineWidth = 1;
+    for (let x = 1; x < COLS; x += 1) {
+      this.line(ox + x * cell + 0.5, oy, ox + x * cell + 0.5, oy + boardH);
+    }
+    for (let y = 1; y < ROWS; y += 1) {
+      this.line(ox, oy + y * cell + 0.5, ox + boardW, oy + y * cell + 0.5);
+    }
+
+    // editGrid 셀 그리기 (모두 garbage 컬러)
+    snapshot.editGrid.forEach((row, y) => {
+      row.forEach((c, x) => {
+        if (c) this.drawCell(ox, oy, cell, x, y, "garbage", 1, false);
+      });
+    });
+
+    // 외곽선
+    this.pixelStroke(ox, oy, boardW, boardH, 3, resolveCssVar(TOKENS.ink));
   }
 
   private renderTouchTrail(snapshot: GameSnapshot): void {
@@ -161,6 +207,35 @@ export class Renderer {
     this.ctx.font = `${10}px ${FONT_PIXEL_BASE}`;
     this.ctx.textBaseline = "middle";
     this.ctx.textAlign = "left";
+
+    if (snapshot.mode === "editing") {
+      // 에디터 모드 라벨
+      this.ctx.fillStyle = resolveCssVar(TOKENS.inkSoft);
+      this.ctx.fillText("EDIT", screen.x + 14, top + 8);
+      this.ctx.fillText("QUEUE", screen.x + screen.width - 80, top + 8);
+
+      this.ctx.font = `bold 18px ${FONT_MONO_BASE}`;
+      this.ctx.fillStyle = resolveCssVar(TOKENS.ink);
+      const cellsFilled = snapshot.editGrid.flat().filter((c) => c !== null).length;
+      this.ctx.fillText(`${cellsFilled} CELLS`, screen.x + 14, top + 26);
+
+      this.ctx.textAlign = "right";
+      const statusColor =
+        snapshot.editStatus === "ready"
+          ? resolveCssVar(TOKENS.success)
+          : snapshot.editStatus === "no-solution"
+            ? resolveCssVar(TOKENS.danger)
+            : resolveCssVar(TOKENS.ink);
+      this.ctx.fillStyle = statusColor;
+      this.ctx.fillText(this.padNumber(snapshot.editQueueLength, 2), screen.x + screen.width - 14, top + 26);
+      this.ctx.textAlign = "left";
+
+      this.ctx.strokeStyle = resolveCssVar(TOKENS.ink);
+      this.ctx.lineWidth = 1;
+      this.line(screen.x + 12, top + 44, screen.x + screen.width - 12, top + 44);
+      return;
+    }
+
     this.ctx.fillStyle = resolveCssVar(TOKENS.inkSoft);
     this.ctx.fillText("PIECES", screen.x + 14, top + 8);
     this.ctx.fillText("TRY", screen.x + screen.width - 80, top + 8);
@@ -367,20 +442,68 @@ export class Renderer {
   }
 
   private renderGestureHints(snapshot: GameSnapshot): void {
-    if (snapshot.mode !== "planning") return;
-    const screen = this.screenRect();
-    this.ctx.save();
-    this.ctx.globalAlpha = 0.6;
-    this.ctx.textAlign = "center";
-    this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
-    this.ctx.fillStyle = resolveCssVar(TOKENS.inkMute);
-    this.ctx.fillText(
-      "DRAG MOVE   TAP ROTATE   ↓ DROP   ↑ QUIT   U UNDO",
-      screen.x + screen.width / 2,
-      screen.y + screen.height - 14,
-    );
-    this.ctx.restore();
-    this.ctx.textAlign = "left";
+    if (snapshot.mode === "planning") {
+      const screen = this.screenRect();
+      this.ctx.save();
+      this.ctx.globalAlpha = 0.6;
+      this.ctx.textAlign = "center";
+      this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
+      this.ctx.fillStyle = resolveCssVar(TOKENS.inkMute);
+      this.ctx.fillText(
+        "DRAG MOVE   TAP ROTATE   ↓ DROP   ↑ QUIT   U UNDO",
+        screen.x + screen.width / 2,
+        screen.y + screen.height - 14,
+      );
+      this.ctx.restore();
+      this.ctx.textAlign = "left";
+      return;
+    }
+    if (snapshot.mode === "editing") {
+      const screen = this.screenRect();
+      this.ctx.save();
+      this.ctx.textAlign = "center";
+      this.ctx.font = `9px ${FONT_PIXEL_BASE}`;
+      // 상태 안내 (가장 위에)
+      let statusLine = "TAP CELL TO TOGGLE";
+      let statusColor: string = TOKENS.inkSoft;
+      if (snapshot.editStatus === "ready") {
+        statusLine = `READY — ${snapshot.editFoundQueue?.join(" ")} — ENTER TO PLAY`;
+        statusColor = TOKENS.success;
+      } else if (snapshot.editStatus === "no-solution") {
+        statusLine = "NO SOLUTION — EDIT BOARD OR LENGTH";
+        statusColor = TOKENS.danger;
+      }
+      this.ctx.fillStyle = resolveCssVar(statusColor);
+      this.ctx.fillText(statusLine, screen.x + screen.width / 2, screen.y + screen.height - 32);
+
+      // 키 안내
+      this.ctx.globalAlpha = 0.6;
+      this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
+      this.ctx.fillStyle = resolveCssVar(TOKENS.inkMute);
+      this.ctx.fillText(
+        "+/- LENGTH   G GENERATE   ESC EXIT",
+        screen.x + screen.width / 2,
+        screen.y + screen.height - 14,
+      );
+      this.ctx.restore();
+      this.ctx.textAlign = "left";
+      return;
+    }
+    if (snapshot.mode === "feed") {
+      const screen = this.screenRect();
+      this.ctx.save();
+      this.ctx.globalAlpha = 0.5;
+      this.ctx.textAlign = "center";
+      this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
+      this.ctx.fillStyle = resolveCssVar(TOKENS.inkMute);
+      this.ctx.fillText(
+        "E EDIT YOUR OWN PUZZLE",
+        screen.x + screen.width / 2,
+        screen.y + screen.height - 14,
+      );
+      this.ctx.restore();
+      this.ctx.textAlign = "left";
+    }
   }
 
   private renderOverlays(snapshot: GameSnapshot, now: number): void {

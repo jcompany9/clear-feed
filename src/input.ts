@@ -84,6 +84,13 @@ export class InputController {
       }
       // horizontal drag: 이미 onMove에서 setPieceColumn으로 처리됨
       this.game.setTouchTrail([]);
+    } else if (mode === "editing") {
+      // 에디터: 셀 탭 = 토글
+      if (isTap) {
+        const cell = this.renderer.screenToCell(event.clientX, event.clientY);
+        if (cell) this.game.editToggleCell(cell.col, cell.row);
+      }
+      this.game.setTouchTrail([]);
     } else if (horizontal && dx < -70) {
       this.game.challengeFeed();
     } else if (horizontal && dx > 70) {
@@ -121,12 +128,19 @@ export class InputController {
         this.game.undoLastPlacement();
       }
       if (event.key === "Escape") this.game.abandon();
+    } else if (mode === "editing") {
+      if (event.key === "+" || event.key === "=") this.game.setEditQueueLength(1);
+      if (event.key === "-" || event.key === "_") this.game.setEditQueueLength(-1);
+      if (event.key.toLowerCase() === "g") this.game.generateEditedPuzzle();
+      if (event.key === "Enter") this.game.playEditedPuzzle();
+      if (event.key === "Escape") this.game.exitEditor();
     } else if (mode === "failed") {
       if (event.key === "Enter" || event.key === " ") this.game.retry();
     } else if (mode === "clear") {
       if (event.key === "Enter" || event.key === " ") this.game.advance();
     } else if (mode === "feed") {
       if (event.key === "Enter" || event.key === " ") this.game.startPlanning();
+      if (event.key.toLowerCase() === "e") this.game.enterEditor();
     }
     if (event.key.toLowerCase() === "s") this.game.toggleSound();
     if (event.key.toLowerCase() === "c") this.game.copyShareUrl();

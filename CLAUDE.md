@@ -122,6 +122,43 @@ UGC 에디터 옵션 A의 핵심: "쌓기만 해, 큐는 알아서 만들어줄�
 - maxNodes 기본값 200000 충분
 - 위험: 매우 깊은 검색 트리 (8+ 피스, 빈 보드)는 truncated 반환
 
+## 에디터 (UGC Phase 2)
+
+사용자가 직접 보드를 디자인 → 솔버가 큐 자동 생성 → 플레이.
+
+### 흐름
+```
+[FEED] ──E──→ [EDITING] ──G──→ [솔버 동작]
+                                  │
+                                  ├─ ready → ENTER → [PLANNING]
+                                  └─ no-solution → 보드 수정 후 재시도
+```
+
+### Game 메서드
+- `enterEditor()` — feed에서만 진입. 빈 보드 + queueLength=5로 시작
+- `editToggleCell(x, y)` — 셀 토글 (null ↔ "garbage")
+- `setEditQueueLength(delta)` — 큐 길이 ±, 1~10 클램프
+- `generateEditedPuzzle()` — `findSolvableQueue` 호출, 결과를 editFoundQueue + editStatus에 저장
+- `playEditedPuzzle()` — status가 "ready"일 때만 작동. 만든 퍼즐을 피드에 끼워넣고 planning 시작
+- `exitEditor()` — feed로 복귀
+
+### 입력
+- E (feed) → 에디터 진입
+- 셀 탭 → 토글
+- +/- → queueLength
+- G → generate
+- Enter → playEditedPuzzle (ready 상태에서만)
+- Esc → exitEditor
+
+### 상태 머신
+- `editStatus: "idle" | "generating" | "ready" | "no-solution"`
+- 보드 또는 큐 길이 변경 시 `editFoundQueue`/`editStatus` 자동 무효화
+
+### 알려진 한계
+- 솔버 generate가 동기 호출이라 큰 퍼즐(length 10+) 시도 시 UI 멈춤 (수십 초 가능)
+- 향후: Web Worker로 비동기화 또는 generating 중 토스트
+- 사용자 보드는 모두 `garbage` 컬러 (피스별 색은 다음 이터레이션)
+
 ## URL 공유 (UGC Phase 1)
 
 - `?seed=N` 파라미터로 특정 퍼즐을 첫 피드 위치에 로드

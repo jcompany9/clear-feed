@@ -7,11 +7,13 @@ import {
   type GameMode,
   type GameSnapshot,
   type Piece,
+  type PieceKind,
   type Point,
   type Puzzle,
 } from "./gameTypes";
 import { absoluteCells, createPiece, rotatePiece } from "./pieces";
 import { createFeedPuzzle, createInitialFeed } from "./puzzleGenerator";
+import { findSolvableQueue } from "./solver";
 import { loadStorage, rememberPuzzle, setSoundOn } from "./storage";
 import { SoundSystem } from "./sound";
 
@@ -29,6 +31,10 @@ export class Game {
   private queueIndex = 0;
   private history: PlacementSnapshot[] = [];
   private attempts = 0;
+  private editGrid: Cell[][] = [];
+  private editQueueLength = 5;
+  private editFoundQueue: PieceKind[] | null = null;
+  private editStatus: "idle" | "generating" | "ready" | "no-solution" = "idle";
   private sound: SoundSystem;
   private animation: AnimationState = {
     landedAt: 0,
@@ -74,6 +80,10 @@ export class Game {
       attempts: this.attempts,
       queueIndex: this.queueIndex,
       ghostCells: this.computeGhost(),
+      editGrid: this.editGrid.map((row) => [...row]),
+      editQueueLength: this.editQueueLength,
+      editFoundQueue: this.editFoundQueue ? [...this.editFoundQueue] : null,
+      editStatus: this.editStatus,
     };
   }
 
@@ -313,6 +323,91 @@ export class Game {
       this.sound.play("feed");
     }
   }
+
+  // ──────── Editor (UGC) ────────
+
+  enterEditor(): void {
+    if (this.mode !== "feed") return;
+    this.mode = "editing";
+    this.editGrid = Array.from({ length: ROWS }, () => Array.from({ length: COLS }, () => null as Cell));
+    this.editQueueLength = 5;
+    this.editFoundQueue = null;
+    this.editStatus = "idle";
+  }
+
+  /** 편집 보드의 (x, y) 셀 토글 (빈 ↔ "garbage") */
+  editToggleCell(x: number, y: number): void {
+    if (this.mode !== "editing") return;
+    if (x < 0 || x >= COLS || y < 0 || y >= ROWS) return;
+    this.editGrid[y][x] = this.editGrid[y][x] === null ? ("garbage" as Cell) : null;
+    // 보드가 바뀌면 이전 결과 무효화
+    this.editFoundQueue = null;
+    this.editStatus = "idle";
+    this.sound.play("move");
+  }
+
+  setEditQueueLength(delta: number): void {
+    if (this.mode !== "editing") return;
+    const next = this.editQueueLength + delta;
+    if (next < 1 || next > 10) return;
+    this.editQueueLength = next;
+    this.editFoundQueue = null;
+    this.editStatus = "idle";
+    this.sound.play("move");
+  }
+
+  /** 사용자 보드에 풀이 가능한 큐를 자동 생성 시도 */
+  generateEditedPuzzle(): void {
+    if (this.mode !== "editing") return;
+    this.editStatus = "generating";
+    const found = findSolvableQueue(this.editGrid, this.editQueueLength);
+    if (found) {
+      this.editFoundQueue = found.queue;
+      this.editStatus = "ready";
+      this.flashToast(`SOLVABLE (${found.attempts} TRIES)`);
+      this.sound.play("clear");
+    } else {
+      this.editFoundQueue = null;
+      this.editStatus = "no-solution";
+      this.flashToast("NO SOLUTION FOUND");
+      this.sound.play("fail");
+    }
+  }
+
+  /** 만든 퍼즐로 플레이 (planning 모드 진입) */
+  playEditedPuzzle(): void {
+    if (this.mode !== "editing" || !this.editFoundQueue || this.editStatus !== "ready") return;
+    const editedPuzzle: Puzzle = {
+      seed: 0, // user-created (no seed)
+      template: "near-line",
+      difficulty: "Normal",
+      grid: this.editGrid.map((row) => [...row]),
+      queue: [...this.editFoundQueue],
+      targetLines: 0,
+      movesLimit: this.editFoundQueue.length,
+    };
+    // 현재 피드에 추가하고 그 인덱스로 이동 → planning 시작
+    this.feed.splice(this.feedIndex + 1, 0, { puzzle: editedPuzzle, cleared: false });
+    this.feedIndex += 1;
+    this.feed = this.feed.slice(-12);
+    this.feedIndex = Math.min(this.feedIndex, this.feed.length - 1);
+    this.mode = "feed";
+    this.editGrid = [];
+    this.editFoundQueue = null;
+    this.editStatus = "idle";
+    this.grid = cloneGrid(this.activePuzzle.grid);
+    this.startPlanning();
+  }
+
+  exitEditor(): void {
+    if (this.mode !== "editing") return;
+    this.mode = "feed";
+    this.editGrid = [];
+    this.editFoundQueue = null;
+    this.editStatus = "idle";
+  }
+
+  // ──────────────────────────────
 
   toggleSound(): void {
     this.sound.setEnabled(!this.sound.isEnabled);
