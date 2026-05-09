@@ -14,9 +14,25 @@ import {
 import { absoluteCells, createPiece, rotatePiece } from "./pieces";
 import { createFeedPuzzle, createInitialFeed } from "./puzzleGenerator";
 import { findSolvableQueue } from "./solver";
+import SolverWorker from "./solverWorker?worker";
 import { encodePuzzle } from "./encoding";
 import { loadStorage, rememberPuzzle, setSoundOn } from "./storage";
 import { SoundSystem } from "./sound";
+
+interface GenerateResult {
+  queue: PieceKind[];
+  attempts: number;
+}
+
+interface WorkerResponseData {
+  id: number;
+  found: GenerateResult | null;
+}
+
+export interface GameOptions {
+  /** false면 솔버를 메인 스레드에서 동기 실행 (테스트용). 기본 true (Web Worker). */
+  useWorker?: boolean;
+}
 
 interface PlacementSnapshot {
   grid: Cell[][];
@@ -36,6 +52,10 @@ export class Game {
   private editQueueLength = 5;
   private editFoundQueue: PieceKind[] | null = null;
   private editStatus: "idle" | "generating" | "ready" | "no-solution" = "idle";
+  private useWorker: boolean;
+  private solverWorker: Worker | null = null;
+  private nextWorkerId = 0;
+  private pendingWorkerId: number | null = null;
   private sound: SoundSystem;
   private animation: AnimationState = {
     landedAt: 0,
@@ -52,8 +72,9 @@ export class Game {
     touchTrail: [],
   };
 
-  constructor(sound: SoundSystem, initialSeed?: number, initialPuzzle?: Puzzle) {
+  constructor(sound: SoundSystem, initialSeed?: number, initialPuzzle?: Puzzle, opts: GameOptions = {}) {
     this.sound = sound;
+    this.useWorker = opts.useWorker ?? true;
     const saved = loadStorage();
     this.sound.setEnabled(saved.soundOn);
     const seedBase = initialSeed ?? saved.lastSeed + 17;
@@ -363,11 +384,63 @@ export class Game {
     this.sound.play("move");
   }
 
-  /** 사용자 보드에 풀이 가능한 큐를 자동 생성 시도 */
+  /** 사용자 보드에 풀이 가능한 큐를 자동 생성. Worker 사용 시 비동기 (UI 안 멈춤). */
   generateEditedPuzzle(): void {
     if (this.mode !== "editing") return;
+    if (this.editStatus === "generating") return; // 이미 진행 중이면 무시
     this.editStatus = "generating";
-    const found = findSolvableQueue(this.editGrid, this.editQueueLength);
+    this.editFoundQueue = null;
+
+    const worker = this.ensureWorker();
+    if (worker) {
+      const id = ++this.nextWorkerId;
+      this.pendingWorkerId = id;
+      worker.postMessage({
+        id,
+        grid: this.editGrid.map((row) => [...row]),
+        length: this.editQueueLength,
+      });
+    } else {
+      // Fallback: sync (테스트 환경 또는 Worker 미지원)
+      const found = findSolvableQueue(this.editGrid, this.editQueueLength);
+      this.applyGenerateResult(found ? { queue: found.queue, attempts: found.attempts } : null);
+    }
+  }
+
+  /** Worker 생성 (lazy). 실패하거나 비활성화면 null. */
+  private ensureWorker(): Worker | null {
+    if (!this.useWorker) return null;
+    if (this.solverWorker) return this.solverWorker;
+    if (typeof Worker === "undefined") return null;
+    try {
+      this.solverWorker = new SolverWorker();
+      this.solverWorker.addEventListener("message", (e: MessageEvent<WorkerResponseData>) => {
+        this.onWorkerResponse(e.data);
+      });
+      this.solverWorker.addEventListener("error", () => {
+        // Worker 오류 시 sync로 fallback
+        this.solverWorker = null;
+        if (this.editStatus === "generating") {
+          const found = findSolvableQueue(this.editGrid, this.editQueueLength);
+          this.applyGenerateResult(found ? { queue: found.queue, attempts: found.attempts } : null);
+        }
+      });
+      return this.solverWorker;
+    } catch {
+      return null;
+    }
+  }
+
+  private onWorkerResponse(data: WorkerResponseData): void {
+    // 모드가 바뀌었거나 더 새 요청이 있으면 무시
+    if (this.mode !== "editing") return;
+    if (data.id !== this.pendingWorkerId) return;
+    this.pendingWorkerId = null;
+    this.applyGenerateResult(data.found);
+  }
+
+  private applyGenerateResult(found: GenerateResult | null): void {
+    if (this.mode !== "editing") return;
     if (found) {
       this.editFoundQueue = found.queue;
       this.editStatus = "ready";

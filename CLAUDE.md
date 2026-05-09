@@ -154,9 +154,16 @@ UGC 에디터 옵션 A의 핵심: "쌓기만 해, 큐는 알아서 만들어줄�
 - `editStatus: "idle" | "generating" | "ready" | "no-solution"`
 - 보드 또는 큐 길이 변경 시 `editFoundQueue`/`editStatus` 자동 무효화
 
+### Web Worker 비동기 솔버
+`generateEditedPuzzle`은 `src/solverWorker.ts`에서 백그라운드 스레드로 실행됨.
+- `editStatus = "generating"` → 버튼 라벨 "GENERATING..." (점멸 점)
+- 메인 UI는 멈추지 않음 — 다른 셀 토글, 큐 길이 조절, 스크롤 등 가능
+- 워커가 끝나면 `onWorkerResponse` → applyGenerateResult로 상태 전환
+- request id 매칭: 사용자가 generating 도중 보드 변경 시 stale 응답 무시
+- `Game` 생성자 옵션 `useWorker: false`로 sync 모드 (테스트 결정성)
+- happy-dom에서 Worker 미동작 → makeGame 헬퍼가 useWorker=false 강제
+
 ### 알려진 한계
-- 솔버 generate가 동기 호출이라 큰 퍼즐(length 10+) 시도 시 UI 멈춤 (수십 초 가능)
-- 향후: Web Worker로 비동기화 또는 generating 중 토스트
 - 사용자 보드는 모두 `garbage` 컬러 (피스별 색은 다음 이터레이션)
 
 ## URL 공유 (UGC Phase 1 — 완성)

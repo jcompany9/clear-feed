@@ -19,7 +19,8 @@ class FakeSound {
 
 function makeGame(seed?: number): Game {
   const sound = new FakeSound() as unknown as SoundSystem;
-  return new Game(sound, seed);
+  // useWorker:false → 솔버를 메인 스레드에서 동기 실행 (테스트 결정성 + happy-dom Worker 미지원)
+  return new Game(sound, seed, undefined, { useWorker: false });
 }
 
 describe("Game — initial state", () => {

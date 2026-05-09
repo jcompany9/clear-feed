@@ -485,7 +485,10 @@ export class Renderer {
       // 상태 라벨 (배너)
       let statusLine = "TAP CELL TO TOGGLE";
       let statusColor: string = TOKENS.inkSoft;
-      if (snapshot.editStatus === "ready") {
+      if (snapshot.editStatus === "generating") {
+        statusLine = "SOLVING — PLEASE WAIT";
+        statusColor = TOKENS.info;
+      } else if (snapshot.editStatus === "ready") {
         statusLine = `READY — ${snapshot.editFoundQueue?.join(" ")}`;
         statusColor = TOKENS.success;
       } else if (snapshot.editStatus === "no-solution") {
@@ -507,13 +510,31 @@ export class Renderer {
       this.finishButton = { x: btnX, y: btnY, w: btnW, h: btnH };
 
       const ready = snapshot.editStatus === "ready";
-      this.ctx.fillStyle = ready ? resolveCssVar(TOKENS.success) : resolveCssVar(TOKENS.accent);
+      const generating = snapshot.editStatus === "generating";
+      // 생성 중: 회색 배경 + 점멸하는 점들
+      const fillColor = generating
+        ? resolveCssVar(TOKENS.bgPanel)
+        : ready
+          ? resolveCssVar(TOKENS.success)
+          : resolveCssVar(TOKENS.accent);
+      this.ctx.fillStyle = fillColor;
       this.ctx.fillRect(btnX, btnY, btnW, btnH);
       this.pixelStroke(btnX, btnY, btnW, btnH, 2, resolveCssVar(TOKENS.ink));
       this.ctx.font = `bold 12px ${FONT_PIXEL_BASE}`;
       this.ctx.textBaseline = "middle";
-      this.ctx.fillStyle = resolveCssVar(TOKENS.bgPanel);
-      const label = ready ? "▶ FINISH" : "GENERATE";
+      this.ctx.fillStyle = generating
+        ? resolveCssVar(TOKENS.inkMute)
+        : resolveCssVar(TOKENS.bgPanel);
+      let label: string;
+      if (generating) {
+        // 점멸 점: . / .. / ... 으로 진행감
+        const dots = ".".repeat((Math.floor(performance.now() / 250) % 3) + 1);
+        label = `GENERATING${dots}`;
+      } else if (ready) {
+        label = "▶ FINISH";
+      } else {
+        label = "GENERATE";
+      }
       this.ctx.fillText(label, btnX + btnW / 2, btnY + btnH / 2);
 
       // 키보드 단축키 힌트 (작게)

@@ -88,11 +88,13 @@ export class InputController {
       if (isTap) {
         // FINISH 버튼 우선
         if (this.renderer.isFinishButton(event.clientX, event.clientY)) {
-          if (this.game.snapshot.editStatus === "ready") {
+          const status = this.game.snapshot.editStatus;
+          if (status === "ready") {
             this.game.playEditedPuzzle();
-          } else {
+          } else if (status !== "generating") {
             this.game.generateEditedPuzzle();
           }
+          // generating 중이면 무시 (이미 진행 중)
         } else {
           // 그 외 = 셀 토글
           const cell = this.renderer.screenToCell(event.clientX, event.clientY);
@@ -142,7 +144,9 @@ export class InputController {
     } else if (mode === "editing") {
       if (event.key === "+" || event.key === "=") this.game.setEditQueueLength(1);
       if (event.key === "-" || event.key === "_") this.game.setEditQueueLength(-1);
-      if (event.key.toLowerCase() === "g") this.game.generateEditedPuzzle();
+      if (event.key.toLowerCase() === "g" && this.game.snapshot.editStatus !== "generating") {
+        this.game.generateEditedPuzzle();
+      }
       if (event.key === "Enter") this.game.playEditedPuzzle();
       if (event.key === "Escape") this.game.exitEditor();
     } else if (mode === "failed") {
