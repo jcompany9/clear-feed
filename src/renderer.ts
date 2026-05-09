@@ -248,7 +248,7 @@ export class Renderer {
         bgToken: downReadyToLock ? TOKENS.success : TOKENS.bgPanel,
         fgToken: downReadyToLock ? TOKENS.bgPanel : TOKENS.ink,
       },
-      { action: "hardDrop", icon: "⏬", bgToken: TOKENS.accent, fgToken: TOKENS.bgPanel },
+      { action: "hardDrop", icon: "⏬", bgToken: TOKENS.ink, fgToken: TOKENS.bgPanel },
     ];
     for (let i = 0; i < layout.length; i += 1) {
       const b = layout[i];
