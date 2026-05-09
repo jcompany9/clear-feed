@@ -253,7 +253,26 @@ export class Game {
     }
   }
 
-  /** 현재 피스를 바닥까지 떨어뜨려 잠금 */
+  /**
+   * 현재 피스를 바닥/스택까지 떨어뜨리되 잠금 안 함.
+   * 떨어진 후에도 좌/우 이동, 회전 가능 — T-spin, 처마 슬라이드 같은 스킬 플레이.
+   * 잠그려면 dropCurrent() 호출.
+   */
+  slideToFloor(): void {
+    if (this.mode !== "planning" || !this.currentPiece) return;
+    let piece = this.currentPiece;
+    let moved = false;
+    while (this.canPlace({ ...piece, y: piece.y + 1 })) {
+      piece = { ...piece, y: piece.y + 1 };
+      moved = true;
+    }
+    if (moved) {
+      this.currentPiece = piece;
+      this.sound.play("move");
+    }
+  }
+
+  /** 현재 피스를 바닥까지 떨어뜨려 잠금 (하드 드롭) */
   dropCurrent(): void {
     if (this.mode !== "planning" || !this.currentPiece) return;
     // undo 용 스냅샷 (드롭 직전 상태)

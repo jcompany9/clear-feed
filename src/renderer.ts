@@ -744,7 +744,7 @@ export class Renderer {
       this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
       this.ctx.fillStyle = resolveCssVar(TOKENS.inkMute);
       this.ctx.fillText(
-        "DRAG MOVE   TAP ROTATE   ↓ DROP   ↑ QUIT   U UNDO",
+        "DRAG/TAP   ↓ SLIDE   ⏎ LOCK   ↑ QUIT   U UNDO",
         screen.x + screen.width / 2,
         screen.y + screen.height - 14,
       );

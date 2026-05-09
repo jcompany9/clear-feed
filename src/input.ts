@@ -95,8 +95,12 @@ export class InputController {
     const isTap = Math.abs(dx) < 18 && Math.abs(dy) < 18 && elapsed < 320;
 
     if (mode === "planning") {
-      if (vertical && dy > 60) {
+      if (vertical && dy > 110) {
+        // 큰 아래 스와이프 = 하드 드롭 (잠금)
         this.game.dropCurrent();
+      } else if (vertical && dy > 40) {
+        // 작은 아래 스와이프 = 슬라이드 (바닥까지, 잠금 X) — 후속 좌우 이동/회전 가능
+        this.game.slideToFloor();
       } else if (vertical && dy < -60) {
         this.game.abandon();
       } else if (isTap) {
@@ -168,10 +172,13 @@ export class InputController {
     if (mode === "planning") {
       if (event.key === "ArrowLeft") this.game.moveCurrent(-1);
       if (event.key === "ArrowRight") this.game.moveCurrent(1);
-      if (event.key === "ArrowUp" || event.key === " " || event.key.toLowerCase() === "r") {
+      if (event.key === "ArrowUp" || event.key.toLowerCase() === "r") {
         this.game.rotateCurrent();
       }
-      if (event.key === "ArrowDown" || event.key === "Enter") this.game.dropCurrent();
+      // 슬라이드 (잠금 안 함, 슬라이드 후 좌/우/회전 가능)
+      if (event.key === "ArrowDown") this.game.slideToFloor();
+      // 하드 드롭 (잠금)
+      if (event.key === "Enter" || event.key === " ") this.game.dropCurrent();
       if (event.key === "Backspace" || event.key.toLowerCase() === "u") {
         this.game.undoLastPlacement();
       }

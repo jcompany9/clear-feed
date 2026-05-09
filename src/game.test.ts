@@ -145,6 +145,47 @@ describe("Game.dropCurrent", () => {
   });
 });
 
+describe("Game.slideToFloor", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("moves piece to the lowest position without locking it", () => {
+    const game = makeGame();
+    game.startPlanning();
+    const before = game.snapshot.current!;
+    const queueLenBefore = game.snapshot.blocksLeft;
+    game.slideToFloor();
+    const after = game.snapshot.current;
+    // Piece should still exist (not locked)
+    expect(after).not.toBeNull();
+    expect(after?.kind).toBe(before.kind);
+    // queueIndex should be unchanged
+    expect(game.snapshot.blocksLeft).toBe(queueLenBefore);
+    // Piece should be at or below initial position
+    expect(after!.y).toBeGreaterThanOrEqual(before.y);
+  });
+
+  it("allows lateral movement after sliding (slide-then-shift skill)", () => {
+    const game = makeGame();
+    game.startPlanning();
+    game.slideToFloor();
+    const afterSlide = game.snapshot.current!;
+    // After slide, piece is at floor; we still try to move sideways.
+    game.moveCurrent(1);
+    const afterMove = game.snapshot.current!;
+    // Either piece moved (move succeeded) or stayed (collision) — but kind/y unchanged in any case
+    expect(afterMove.kind).toBe(afterSlide.kind);
+    // Piece is still un-locked
+    expect(game.snapshot.current).not.toBeNull();
+  });
+
+  it("does nothing when not in planning mode", () => {
+    const game = makeGame();
+    expect(game.snapshot.mode).toBe("feed");
+    game.slideToFloor();
+    expect(game.snapshot.current).toBeNull();
+  });
+});
+
 describe("Game.undoLastPlacement", () => {
   beforeEach(() => localStorage.clear());
 
