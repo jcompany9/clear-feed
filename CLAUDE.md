@@ -91,50 +91,49 @@ Vitest + happy-dom 기반. 순수 로직만 자동 테스트 (Canvas 렌더러�
 - 결정론적 시드 기반이라 백엔드 0개로 P2P 공유 가능
 - 추후: 진짜 맵 에디터 (천장/바닥/큐 직접 편집), 닉네임, 일일 챌린지
 
-## 게임 모드: Planning ("Tetris Golf") — Plan-then-Execute 모델
+## 게임 모드: Planning ("Tetris Golf") — 순차 계획형 (Plan A)
 
-진짜 계획형 퍼즐. 모든 피스를 미리 배치 계획한 후, START 버튼으로 일괄 실행.
+표준 테트리스에 가까운 턴제 퍼즐. 한 피스씩 다루며, 자동 중력 없음 (사용자가 명시적으로 드롭). 무제한 undo로 계획적 풀이 가능.
 
 ### 흐름
-1. **planning**: 카드 탭으로 active 피스 선택, 보드 클릭/드래그로 그 피스의 계획 위치 설정. 모든 ghost가 동시에 보드에 보임 (시뮬레이션 결과 기준).
-2. **canExecute**: 모든 plannedMoves가 채워지면 START 버튼 활성화 (`▶ START`).
-3. **executePlan()**: 큐 순서대로 각 피스를 떨어뜨려 grid에 적용 + 라인 클리어. 마지막에 evaluate.
-4. **clear / failed**: 보드가 완전히 비면 `HOLE IN ONE` (1회 시도) / `SOLVED IN N`. 안 비면 `MISS — TRY N+1`.
+1. **planning**: 큐의 첫 피스가 보드 상단(x=4, y=1)에 스폰
+2. 사용자가 **이동/회전**으로 위치 조정 후 **드롭** — 피스가 바닥까지 떨어져 잠김 + 라인 클리어
+3. 다음 피스 자동 스폰. 큐 다 쓰면 evaluate.
+4. **clear**: 보드 완전히 비움 → `HOLE IN ONE`(1회) / `SOLVED IN N`
+5. **failed**: 큐 다 썼는데 블록 남음 → 같은 퍼즐 재시도 (attempts 누적)
+6. **undo**: 직전 드롭 무름 (히스토리 스냅샷). 무제한 가능.
 
 ### 핵심 데이터
-- `plannedMoves: Array<PlannedMove | null>` — 큐 길이만큼. null = 미계획
-- `activeEditIndex: number | null` — 현재 편집 중인 큐 인덱스
-- `currentRotation: number` — active 피스의 회전 (0~3)
-- `plannedGhosts: PlannedGhost[]` (snapshot only) — 시뮬레이션 결과, 각 피스가 실제로 떨어질 위치들
+- `currentPiece: Piece | null` — 현재 컨트롤 중인 피스 (위치+회전 포함)
+- `queueIndex: number` — 다음 스폰할 큐 인덱스
+- `history: PlacementSnapshot[]` — 드롭 직전 grid+queueIndex 스냅샷, undo용
+- `ghostCells: Point[] | null` (snapshot) — 현재 피스 안착 예측 위치
 
-### 시뮬레이션
-`computePlannedGhosts()`가 매 snapshot마다 실행:
-1. 사전 grid 복제
-2. 큐 순서대로 plannedMoves 적용 — 각 피스 중력 시뮬, 셀 잠금, 라인 클리어
-3. 각 단계의 안착 셀들을 ghost로 반환
-4. 만약 어떤 피스가 충돌해 떨어질 수 없으면 `valid: false`
-
-이 시뮬레이션이 핸드/보드의 visual feedback과 `canExecute` 체크의 single source of truth.
-
-### 핸드 UI 상태
-- **Active**: `--gb-accent` 굵은 외곽선
-- **Planned (not active)**: 일반 ink 외곽선 + 하단 작은 success 색 마커
-- **Unplanned**: inkMute (옅은) 외곽선
-
-### START 버튼
-- 화면 하단 중앙, 140×32 픽셀
-- `canExecute` true: accent 채움 + `▶ START` 라벨
-- false: 회색 + `PLAN ALL`
-- 클릭/탭 또는 Enter 키 = `executePlan()`
+### Game 메서드 (planning 모드)
+- `moveCurrent(dx)` — 좌/우 1칸
+- `setPieceColumn(col)` — 특정 컬럼으로 직접 이동 (충돌 시 도중 멈춤, 드래그용)
+- `rotateCurrent()` — 회전 + 벽 차기 (kicks: -2,-1,0,1,2)
+- `dropCurrent()` — 바닥까지 떨어뜨려 잠금, 라인 클리어, 다음 스폰
+- `undoLastPlacement()` — history pop, grid 복원, 직전 피스 재스폰
 
 ### 입력 정리
-- 보드 탭/드래그 → active 피스의 plannedMoves 업데이트, 자동으로 다음 미계획 피스로 이동
-- 핸드 카드 탭 → activeEditIndex 변경
-- R / Space / ↑ → active 피스 회전 (이미 계획된 거면 회전만 갱신)
-- U / Backspace → active 피스 계획 취소 (다시 미계획)
-- Enter / START 버튼 → executePlan
-- ↑ 큰 스와이프 / Esc → abandon
-- ↓ 큰 스와이프 → undo
+**키보드:**
+- ←/→ — 좌/우 이동
+- ↑ / R / Space — 회전
+- ↓ / Enter — 드롭
+- U / Backspace — undo
+- Esc — abandon
+
+**터치:**
+- 드래그(가로) — 피스 컬럼 이동 (시작 시점 피스 위치 기준 셀 단위 변환)
+- 탭(이동 거의 없음) — 회전
+- 아래로 큰 스와이프(>60px) — 드롭
+- 위로 큰 스와이프(>60px) — abandon
+- 손가락 trail은 화면에 점선으로 시각화
+
+**Renderer:**
+- `screenToColumn(x,y)` — 화면 좌표 → 보드 컬럼
+- `getCellSize()` — 드래그 픽셀 → 컬럼 변환용
 
 ### 상태 머신
 ```

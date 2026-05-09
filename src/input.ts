@@ -3,9 +3,12 @@ import type { Renderer } from "./renderer";
 
 interface TouchState {
   id: number;
-  x: number;
-  y: number;
+  startX: number;
+  startY: number;
+  lastX: number;
   startedAt: number;
+  startedColumn: number | null;
+  pieceStartX: number;
   trail: Array<{ x: number; y: number }>;
 }
 
@@ -21,7 +24,6 @@ export class InputController {
     canvas.addEventListener("pointerup", this.onUp, { passive: false });
     canvas.addEventListener("pointercancel", this.onCancel, { passive: false });
     canvas.addEventListener("pointermove", this.onMove, { passive: true });
-    canvas.addEventListener("pointerleave", this.onLeave, { passive: true });
     canvas.addEventListener("contextmenu", (event) => event.preventDefault());
     window.addEventListener("keydown", this.onKey);
   }
@@ -29,71 +31,58 @@ export class InputController {
   private onDown = (event: PointerEvent): void => {
     event.preventDefault();
     this.canvas.setPointerCapture(event.pointerId);
+    const startCol = this.renderer.screenToColumn(event.clientX, event.clientY);
+    const piece = this.game.snapshot.current;
     this.touch = {
       id: event.pointerId,
-      x: event.clientX,
-      y: event.clientY,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
       startedAt: performance.now(),
+      startedColumn: startCol,
+      pieceStartX: piece ? piece.x : 4,
       trail: [{ x: event.clientX, y: event.clientY }],
     };
-    // 터치 시작 시점에 호버 미리보기도 시작 (모바일에서 미리보기 노출)
-    if (this.game.snapshot.mode === "planning") {
-      const col = this.renderer.screenToColumn(event.clientX, event.clientY);
-      this.game.setHoverColumn(col);
-      this.game.setTouchTrail(this.touch.trail);
-    }
   };
 
   private onMove = (event: PointerEvent): void => {
-    if (event.pointerType === "touch" && !this.touch) return;
-    const col = this.renderer.screenToColumn(event.clientX, event.clientY);
-    this.game.setHoverColumn(col);
-    if (this.touch && this.touch.id === event.pointerId) {
-      const last = this.touch.trail[this.touch.trail.length - 1];
-      const dx = event.clientX - last.x;
-      const dy = event.clientY - last.y;
-      // 4px 이상 이동했을 때만 점 추가 (밀도 조절)
-      if (dx * dx + dy * dy >= 16) {
-        this.touch.trail.push({ x: event.clientX, y: event.clientY });
-        this.game.setTouchTrail(this.touch.trail);
-      }
+    if (!this.touch || this.touch.id !== event.pointerId) return;
+    const dx = event.clientX - this.touch.startX;
+    const cellSize = this.renderer.getCellSize();
+    if (cellSize > 0 && this.game.snapshot.mode === "planning") {
+      // 시작 시점의 피스 위치에서 dx 만큼 컬럼 이동 — 셀 단위 변환
+      const colDelta = Math.round(dx / cellSize);
+      const targetCol = this.touch.pieceStartX + colDelta;
+      this.game.setPieceColumn(targetCol);
+    }
+    this.touch.lastX = event.clientX;
+    const last = this.touch.trail[this.touch.trail.length - 1];
+    if ((event.clientX - last.x) ** 2 + (event.clientY - last.y) ** 2 >= 16) {
+      this.touch.trail.push({ x: event.clientX, y: event.clientY });
+      this.game.setTouchTrail(this.touch.trail);
     }
   };
 
   private onUp = (event: PointerEvent): void => {
     event.preventDefault();
     if (!this.touch || this.touch.id !== event.pointerId) return;
-    const dx = event.clientX - this.touch.x;
-    const dy = event.clientY - this.touch.y;
+    const dx = event.clientX - this.touch.startX;
+    const dy = event.clientY - this.touch.startY;
     const elapsed = performance.now() - this.touch.startedAt;
     const mode = this.game.snapshot.mode;
     const horizontal = Math.abs(dx) > Math.abs(dy) * 1.15;
     const vertical = Math.abs(dy) > Math.abs(dx) * 1.15;
-    const isTap = Math.abs(dx) < 24 && Math.abs(dy) < 24 && elapsed < 320;
+    const isTap = Math.abs(dx) < 18 && Math.abs(dy) < 18 && elapsed < 320;
 
     if (mode === "planning") {
-      // 큰 세로 스와이프 = 제스처 (포기/undo)
-      if (vertical && Math.abs(dy) > 52) {
-        if (dy < 0) this.game.abandon();
-        else this.game.undoLastPlacement();
-      } else {
-        // START 버튼 우선 검사
-        if (this.renderer.isStartButton(event.clientX, event.clientY)) {
-          this.game.executePlan();
-        } else {
-          // 핸드 카드 검사
-          const handIdx = this.renderer.screenToHandIndex(event.clientX, event.clientY);
-          if (handIdx !== null) {
-            this.game.selectPiece(handIdx);
-          } else {
-            // 어디서 떼든 (드래그 끝 위치) 그 컬럼에 active 피스 계획
-            const col = this.renderer.screenToColumn(event.clientX, event.clientY);
-            if (col !== null) {
-              this.game.placeAt(col);
-            }
-          }
-        }
+      if (vertical && dy > 60) {
+        this.game.dropCurrent();
+      } else if (vertical && dy < -60) {
+        this.game.abandon();
+      } else if (isTap) {
+        this.game.rotateCurrent();
       }
+      // horizontal drag: 이미 onMove에서 setPieceColumn으로 처리됨
       this.game.setTouchTrail([]);
     } else if (horizontal && dx < -70) {
       this.game.challengeFeed();
@@ -116,24 +105,21 @@ export class InputController {
     if (this.touch?.id === event.pointerId) {
       this.touch = null;
       this.game.setTouchTrail([]);
-      this.game.setHoverColumn(null);
     }
-  };
-
-  private onLeave = (): void => {
-    this.game.setHoverColumn(null);
   };
 
   private onKey = (event: KeyboardEvent): void => {
     const mode = this.game.snapshot.mode;
     if (mode === "planning") {
+      if (event.key === "ArrowLeft") this.game.moveCurrent(-1);
+      if (event.key === "ArrowRight") this.game.moveCurrent(1);
       if (event.key === "ArrowUp" || event.key === " " || event.key.toLowerCase() === "r") {
-        this.game.rotatePlanningPiece();
+        this.game.rotateCurrent();
       }
+      if (event.key === "ArrowDown" || event.key === "Enter") this.game.dropCurrent();
       if (event.key === "Backspace" || event.key.toLowerCase() === "u") {
         this.game.undoLastPlacement();
       }
-      if (event.key === "Enter") this.game.executePlan();
       if (event.key === "Escape") this.game.abandon();
     } else if (mode === "failed") {
       if (event.key === "Enter" || event.key === " ") this.game.retry();
