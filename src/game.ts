@@ -317,7 +317,12 @@ export class Game {
     const isEmpty = this.grid.every((row) => row.every((cell) => cell === null));
     if (isEmpty) {
       this.mode = "clear";
-      this.animation.message = this.attempts === 1 ? "HOLE IN ONE" : `SOLVED IN ${this.attempts}`;
+      // 별 등급: 1회=★★★, 2회=★★, 3회+=★
+      const stars =
+        this.attempts === 1 ? "★★★" : this.attempts === 2 ? "★★" : "★";
+      this.animation.message = this.attempts === 1
+        ? `${stars} HOLE IN ONE`
+        : `${stars} SOLVED IN ${this.attempts}`;
       this.feed[this.feedIndex].cleared = true;
       rememberPuzzle(this.activePuzzle, true);
       this.sound.play("clear");

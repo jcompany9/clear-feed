@@ -482,25 +482,48 @@ export class Renderer {
       return;
     }
 
+    // 3-col 라벨
     this.ctx.fillStyle = resolveCssVar(TOKENS.inkSoft);
-    this.ctx.fillText("PIECES", screen.x + 14, top + 8);
-    this.ctx.fillText("TRY", screen.x + screen.width - 80, top + 8);
+    this.ctx.fillText("BLOCKS", screen.x + 14, top + 8);
+    this.ctx.textAlign = "center";
+    this.ctx.fillText("PIECES", screen.x + screen.width / 2, top + 8);
+    this.ctx.textAlign = "right";
+    this.ctx.fillText("TRY", screen.x + screen.width - 14, top + 8);
+    this.ctx.textAlign = "left";
 
+    // 3-col 숫자
     this.ctx.font = `bold 18px ${FONT_MONO_BASE}`;
-    this.ctx.fillStyle = resolveCssVar(TOKENS.ink);
     const total = snapshot.puzzle.queue.length;
     const placed = snapshot.queueIndex;
-    this.ctx.fillText(`${placed}/${total}`, screen.x + 14, top + 26);
+    const cellsLeft = snapshot.grid.flat().filter((c) => c !== null && c !== "wall").length;
 
+    // BLOCKS (왼쪽) — 0에 가까울수록 success 색
+    this.ctx.fillStyle = cellsLeft === 0 ? resolveCssVar(TOKENS.success) : resolveCssVar(TOKENS.ink);
+    this.ctx.fillText(this.padNumber(cellsLeft, 2), screen.x + 14, top + 26);
+
+    // PIECES (가운데)
+    this.ctx.textAlign = "center";
+    this.ctx.fillStyle = resolveCssVar(TOKENS.ink);
+    this.ctx.fillText(`${placed}/${total}`, screen.x + screen.width / 2, top + 26);
+
+    // TRY (오른쪽) — 2회 이상 빨간색
     this.ctx.textAlign = "right";
     const tries = snapshot.attempts + (snapshot.mode === "planning" ? 1 : 0);
     this.ctx.fillStyle = tries > 1 ? resolveCssVar(TOKENS.danger) : resolveCssVar(TOKENS.ink);
     this.ctx.fillText(this.padNumber(Math.max(1, tries), 2), screen.x + screen.width - 14, top + 26);
     this.ctx.textAlign = "left";
 
+    // 구분선
     this.ctx.strokeStyle = resolveCssVar(TOKENS.ink);
     this.ctx.lineWidth = 1;
     this.line(screen.x + 12, top + 44, screen.x + screen.width - 12, top + 44);
+
+    // 미션 라벨 (구분선 아래, 작게)
+    this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
+    this.ctx.textAlign = "center";
+    this.ctx.fillStyle = resolveCssVar(TOKENS.accent);
+    this.ctx.fillText("▶ PERFECT CLEAR — EMPTY THE BOARD", screen.x + screen.width / 2, top + 56);
+    this.ctx.textAlign = "left";
   }
 
   private renderFeed(snapshot: GameSnapshot, board: DOMRect, now: number): void {
