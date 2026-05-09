@@ -82,6 +82,15 @@ Vitest + happy-dom 기반. 순수 로직만 자동 테스트 (Canvas 렌더러�
 - `puzzleGenerator.ts`는 모듈 레벨 mutable 상태 (`lastTemplate`, `lastDifficulty`)가 있어 테스트 간 결정성이 깨질 수 있음 — 구조적 invariant만 검증
 - `localStorage`는 happy-dom 기본 제공. `beforeEach`에서 `localStorage.clear()` 권장
 
+## URL 공유 (UGC Phase 1)
+
+- `?seed=N` 파라미터로 특정 퍼즐을 첫 피드 위치에 로드
+  (예: `http://localhost:5174/?seed=12345`)
+- 키보드 `C` → 현재 퍼즐의 공유 URL을 클립보드에 복사 + 1.5초 토스트
+- `Game.copyShareUrl()` 사용. clipboard API 실패 시 fallback 토스트
+- 결정론적 시드 기반이라 백엔드 0개로 P2P 공유 가능
+- 추후: 진짜 맵 에디터 (천장/바닥/큐 직접 편집), 닉네임, 일일 챌린지
+
 ## 게임 모드: Sandwich
 
 현재 게임의 정체성은 **샌드위치 모드** — 위쪽에 천장(고정 벽 + 구멍 패턴)이 추가된 테트리스 변종. 향후 UGC(사용자 배치 공유)와 결합해 "Tetris Reels" 컨셉 완성 예정.

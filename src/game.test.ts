@@ -202,6 +202,33 @@ describe("Game.toggleSound", () => {
   });
 });
 
+describe("Game — initialSeed (URL share)", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("uses the provided initialSeed as the first puzzle's seed", () => {
+    const sound = new FakeSound() as unknown as SoundSystem;
+    const game = new Game(sound, 99999);
+    expect(game.snapshot.puzzle.seed).toBe(99999);
+  });
+
+  it("reproduces the same puzzle for the same initialSeed across instances", () => {
+    const sound = new FakeSound() as unknown as SoundSystem;
+    const a = new Game(sound, 12345);
+    const b = new Game(sound, 12345);
+    expect(a.snapshot.puzzle.seed).toBe(b.snapshot.puzzle.seed);
+    expect(a.snapshot.puzzle.template).toBe(b.snapshot.puzzle.template);
+    expect(a.snapshot.puzzle.movesLimit).toBe(b.snapshot.puzzle.movesLimit);
+  });
+
+  it("falls back to storage-derived seed when no initialSeed given", () => {
+    const sound = new FakeSound() as unknown as SoundSystem;
+    const game = new Game(sound);
+    // Default fallback: lastSeed (Date.now() % 100000) + 17
+    expect(typeof game.snapshot.puzzle.seed).toBe("number");
+    expect(Number.isFinite(game.snapshot.puzzle.seed)).toBe(true);
+  });
+});
+
 describe("Game.update — feed animation decay", () => {
   beforeEach(() => localStorage.clear());
 

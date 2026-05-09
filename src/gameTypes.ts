@@ -41,6 +41,8 @@ export interface AnimationState {
   clearStartedAt: number;
   message: string;
   messageStartedAt: number;
+  toast: string;
+  toastAt: number;
   feedSlide: number;
   feedSlideX: number;
   feedShake: number;

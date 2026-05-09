@@ -72,6 +72,7 @@ export class InputController {
     if (event.key === "ArrowUp" || event.key === " ") this.game.rotate();
     if (event.key === "ArrowDown" || event.key === "Enter") this.game.hardDrop();
     if (event.key.toLowerCase() === "s") this.game.toggleSound();
+    if (event.key.toLowerCase() === "c") this.game.copyShareUrl();
     if (event.key === "Escape") this.game.abandon();
   };
 }

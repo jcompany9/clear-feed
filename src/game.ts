@@ -26,16 +26,19 @@ export class Game {
     clearStartedAt: 0,
     message: "",
     messageStartedAt: 0,
+    toast: "",
+    toastAt: 0,
     feedSlide: 0,
     feedSlideX: 0,
     feedShake: 0,
   };
 
-  constructor(sound: SoundSystem) {
+  constructor(sound: SoundSystem, initialSeed?: number) {
     this.sound = sound;
     const saved = loadStorage();
     this.sound.setEnabled(saved.soundOn);
-    this.feed = createInitialFeed(6, saved.lastSeed + 17).map((puzzle) => ({ puzzle, cleared: false }));
+    const seedBase = initialSeed ?? saved.lastSeed + 17;
+    this.feed = createInitialFeed(6, seedBase).map((puzzle) => ({ puzzle, cleared: false }));
     this.grid = cloneGrid(this.activePuzzle.grid);
   }
 
@@ -191,6 +194,24 @@ export class Game {
   toggleSound(): void {
     this.sound.setEnabled(!this.sound.isEnabled);
     setSoundOn(this.sound.isEnabled);
+  }
+
+  copyShareUrl(): void {
+    const seed = this.activePuzzle.seed;
+    const base = `${window.location.origin}${window.location.pathname}`;
+    const url = `${base}?seed=${seed}`;
+    const showToast = (msg: string): void => {
+      this.animation.toast = msg;
+      this.animation.toastAt = performance.now();
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(url).then(
+        () => showToast("LINK COPIED"),
+        () => showToast("COPY FAILED"),
+      );
+    } else {
+      showToast("COPY UNAVAILABLE");
+    }
   }
 
   private softDrop(now: number): void {

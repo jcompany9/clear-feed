@@ -46,7 +46,41 @@ export class Renderer {
     }
     this.renderGestureHints(snapshot);
     this.renderOverlays(snapshot, now);
+    this.renderToast(snapshot, now);
     this.renderScanlines();
+  }
+
+  private renderToast(snapshot: GameSnapshot, now: number): void {
+    const TOAST_MS = 1500;
+    if (!snapshot.animation.toast || snapshot.animation.toastAt === 0) return;
+    const age = now - snapshot.animation.toastAt;
+    if (age > TOAST_MS) return;
+    const fadeStart = TOAST_MS - 300;
+    const alpha = age < fadeStart ? 1 : 1 - (age - fadeStart) / 300;
+
+    const screen = this.screenRect();
+    const text = snapshot.animation.toast;
+    this.ctx.save();
+    this.ctx.font = `10px ${FONT_PIXEL_BASE}`;
+    const textW = this.ctx.measureText(text).width;
+    const padX = 14;
+    const boxW = textW + padX * 2;
+    const boxH = 26;
+    const boxX = screen.x + (screen.width - boxW) / 2;
+    const boxY = screen.y + 56;
+
+    this.ctx.globalAlpha = alpha;
+    this.ctx.fillStyle = resolveCssVar(TOKENS.bgPanel);
+    this.ctx.fillRect(boxX, boxY, boxW, boxH);
+    this.pixelStroke(boxX, boxY, boxW, boxH, 2, resolveCssVar(TOKENS.ink));
+    this.ctx.textAlign = "center";
+    this.ctx.textBaseline = "middle";
+    this.ctx.fillStyle = resolveCssVar(TOKENS.ink);
+    this.ctx.fillText(text, boxX + boxW / 2, boxY + boxH / 2);
+    this.ctx.globalAlpha = 1;
+    this.ctx.textAlign = "left";
+    this.ctx.textBaseline = "alphabetic";
+    this.ctx.restore();
   }
 
   private background(): void {
