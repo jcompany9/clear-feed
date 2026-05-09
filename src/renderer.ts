@@ -1,4 +1,6 @@
 import { COLS, ROWS, type Cell, type GameSnapshot, type PieceKind, type Puzzle } from "./gameTypes";
+
+export type PlanningControl = "left" | "right" | "rotate" | "slide" | "lock";
 import { absoluteCells, createPiece, rotatePiece } from "./pieces";
 import { PIECE_COLORS, TOKENS, clearColorCache, resolveCssVar } from "./colors";
 
@@ -26,6 +28,8 @@ export class Renderer {
   private editToolBoxes: Array<{ x: number; y: number; w: number; h: number; tool: "cell" | PieceKind }> = [];
   // 에디터 회전 버튼 클릭 영역
   private editRotateButton: { x: number; y: number; w: number; h: number } | null = null;
+  // Planning 모드 D-pad 버튼 (left/rotate/right/slide/lock)
+  private controlButtons: Array<{ x: number; y: number; w: number; h: number; action: PlanningControl }> = [];
 
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d", { alpha: false });
@@ -88,6 +92,16 @@ export class Renderer {
     return screenX >= b.x && screenX <= b.x + b.w && screenY >= b.y && screenY <= b.y + b.h;
   }
 
+  /** 화면 좌표가 planning 컨트롤 버튼 위에 있으면 그 액션, 아니면 null */
+  screenToControl(screenX: number, screenY: number): PlanningControl | null {
+    for (const b of this.controlButtons) {
+      if (screenX >= b.x && screenX <= b.x + b.w && screenY >= b.y && screenY <= b.y + b.h) {
+        return b.action;
+      }
+    }
+    return null;
+  }
+
   resize(): void {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.width = Math.floor(window.innerWidth);
@@ -104,15 +118,16 @@ export class Renderer {
     this.background();
     this.renderTop(snapshot);
     let board = this.boardRect();
-    // Planning 모드: 미션 텍스트 + 큐 카드 공간 확보
+    // Planning 모드: 미션 + 큐 카드 + 컨트롤 버튼 공간 확보
     if (snapshot.mode === "planning") {
-      const missionTop = 18;     // 미션 텍스트 위 여백
-      const queueAreaHeight = 64; // 카드 영역 높이
+      const missionTop = 18;
+      const queueAreaHeight = 64;
+      const controlsHeight = 60; // 5-button D-pad
       board = new DOMRect(
         board.x,
         board.y + missionTop,
         board.width,
-        Math.max(80, board.height - queueAreaHeight - missionTop),
+        Math.max(80, board.height - queueAreaHeight - missionTop - controlsHeight),
       );
     }
     if (snapshot.mode === "feed") {
@@ -124,6 +139,9 @@ export class Renderer {
     }
     if (snapshot.mode === "planning") {
       this.renderQueueCards(snapshot, board.y + board.height + 10);
+      this.renderControlButtons(snapshot, board.y + board.height + 10 + 56);
+    } else {
+      this.controlButtons = [];
     }
     this.renderTouchTrail(snapshot);
     this.renderGestureHints(snapshot);
@@ -197,6 +215,46 @@ export class Renderer {
         this.ctx.lineTo(bx + boxSize - 4, by + boxSize - 4);
         this.ctx.stroke();
       }
+    }
+  }
+
+  /** Planning 모드 컨트롤 버튼 — D-pad 스타일 5개 (◀ ↻ ▶ ↓ ⏎) */
+  private renderControlButtons(_snapshot: GameSnapshot, y: number): void {
+    this.controlButtons = [];
+    const screen = this.screenRect();
+    type Button = { action: PlanningControl; icon: string; emphasize: boolean };
+    const buttons: Button[] = [
+      { action: "left", icon: "◀", emphasize: false },
+      { action: "rotate", icon: "↻", emphasize: false },
+      { action: "right", icon: "▶", emphasize: false },
+      { action: "slide", icon: "▼", emphasize: false },
+      { action: "lock", icon: "⏎", emphasize: true },
+    ];
+    const gap = 6;
+    const usableW = screen.width - 24;
+    const computed = Math.floor((usableW - (buttons.length - 1) * gap) / buttons.length);
+    const boxSize = Math.max(40, Math.min(56, computed));
+    const totalW = buttons.length * boxSize + (buttons.length - 1) * gap;
+    const startX = screen.x + (screen.width - totalW) / 2;
+
+    for (let i = 0; i < buttons.length; i += 1) {
+      const b = buttons[i];
+      const bx = startX + i * (boxSize + gap);
+      this.controlButtons.push({ x: bx, y, w: boxSize, h: boxSize, action: b.action });
+
+      // 배경 (LOCK 버튼은 강조 색)
+      this.ctx.fillStyle = resolveCssVar(b.emphasize ? TOKENS.success : TOKENS.bgPanel);
+      this.ctx.fillRect(bx, y, boxSize, boxSize);
+      this.pixelStroke(bx, y, boxSize, boxSize, 2, resolveCssVar(TOKENS.ink));
+
+      // 아이콘
+      this.ctx.font = `bold 22px sans-serif`;
+      this.ctx.textAlign = "center";
+      this.ctx.textBaseline = "middle";
+      this.ctx.fillStyle = resolveCssVar(b.emphasize ? TOKENS.bgPanel : TOKENS.ink);
+      this.ctx.fillText(b.icon, bx + boxSize / 2, y + boxSize / 2 + 1);
+      this.ctx.textAlign = "left";
+      this.ctx.textBaseline = "alphabetic";
     }
   }
 

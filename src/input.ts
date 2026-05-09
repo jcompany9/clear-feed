@@ -95,18 +95,31 @@ export class InputController {
     const isTap = Math.abs(dx) < 18 && Math.abs(dy) < 18 && elapsed < 320;
 
     if (mode === "planning") {
+      // 컨트롤 버튼이 가장 우선 (제스처보다 명시적 탭이 정확함)
+      if (isTap) {
+        const action = this.renderer.screenToControl(event.clientX, event.clientY);
+        if (action) {
+          switch (action) {
+            case "left": this.game.moveCurrent(-1); break;
+            case "right": this.game.moveCurrent(1); break;
+            case "rotate": this.game.rotateCurrent(); break;
+            case "slide": this.game.slideToFloor(); break;
+            case "lock": this.game.dropCurrent(); break;
+          }
+          this.game.setTouchTrail([]);
+          this.touch = null;
+          return;
+        }
+      }
       if (vertical && dy > 110) {
-        // 큰 아래 스와이프 = 하드 드롭 (잠금)
         this.game.dropCurrent();
       } else if (vertical && dy > 40) {
-        // 작은 아래 스와이프 = 슬라이드 (바닥까지, 잠금 X) — 후속 좌우 이동/회전 가능
         this.game.slideToFloor();
       } else if (vertical && dy < -60) {
         this.game.abandon();
       } else if (isTap) {
         this.game.rotateCurrent();
       }
-      // horizontal drag: 이미 onMove에서 setPieceColumn으로 처리됨
       this.game.setTouchTrail([]);
     } else if (mode === "editing") {
       if (isTap) {
