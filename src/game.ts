@@ -52,6 +52,8 @@ export class Game {
   private editQueueLength = 5;
   private editFoundQueue: PieceKind[] | null = null;
   private editStatus: "idle" | "generating" | "ready" | "no-solution" = "idle";
+  private editTool: "cell" | PieceKind = "cell";
+  private editToolRotation = 0;
   private useWorker: boolean;
   private solverWorker: Worker | null = null;
   private nextWorkerId = 0;
@@ -112,6 +114,8 @@ export class Game {
       editQueueLength: this.editQueueLength,
       editFoundQueue: this.editFoundQueue ? [...this.editFoundQueue] : null,
       editStatus: this.editStatus,
+      editTool: this.editTool,
+      editToolRotation: this.editToolRotation,
     };
   }
 
@@ -361,6 +365,53 @@ export class Game {
     this.editQueueLength = 5;
     this.editFoundQueue = null;
     this.editStatus = "idle";
+    this.editTool = "cell";
+    this.editToolRotation = 0;
+  }
+
+  setEditTool(tool: "cell" | PieceKind): void {
+    if (this.mode !== "editing") return;
+    this.editTool = tool;
+    this.editToolRotation = 0;
+    this.sound.play("move");
+  }
+
+  rotateEditTool(): void {
+    if (this.mode !== "editing") return;
+    if (this.editTool === "cell") return; // 셀 모드는 회전 의미 없음
+    this.editToolRotation = (this.editToolRotation + 1) % 4;
+    this.sound.play("rotate");
+  }
+
+  /** 현재 선택된 도구로 (col, row)에 작용. 도구가 셀이면 토글, 피스면 4셀 배치. */
+  editPlaceAt(col: number, row: number): void {
+    if (this.mode !== "editing") return;
+    if (this.editTool === "cell") {
+      this.editToggleCell(col, row);
+      return;
+    }
+    // 피스 배치: 회전 적용 후, (col, row)를 piece의 (x, y)로 사용
+    let piece = createPiece(this.editTool);
+    for (let i = 0; i < this.editToolRotation; i += 1) piece = rotatePiece(piece);
+    piece = { ...piece, x: col, y: row };
+    const cells = absoluteCells(piece);
+    // 모든 셀이 보드 안 + 비어있어야 배치 가능
+    const outOfBounds = cells.some((c) => c.x < 0 || c.x >= COLS || c.y < 0 || c.y >= ROWS);
+    if (outOfBounds) {
+      this.flashToast("OUT OF BOUNDS");
+      return;
+    }
+    const blocked = cells.some((c) => this.editGrid[c.y][c.x] !== null);
+    if (blocked) {
+      this.flashToast("BLOCKED");
+      return;
+    }
+    for (const cell of cells) {
+      this.editGrid[cell.y][cell.x] = this.editTool;
+    }
+    this.editFoundQueue = null;
+    this.editStatus = "idle";
+    this.sound.play("land");
   }
 
   /** 편집 보드의 (x, y) 셀 토글 (빈 ↔ "garbage") */

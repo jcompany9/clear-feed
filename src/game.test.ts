@@ -323,6 +323,88 @@ describe("Editor — enterEditor / exitEditor", () => {
   });
 });
 
+describe("Editor — tool selection & piece placement", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("starts in 'cell' tool with rotation 0", () => {
+    const game = makeGame();
+    game.enterEditor();
+    expect(game.snapshot.editTool).toBe("cell");
+    expect(game.snapshot.editToolRotation).toBe(0);
+  });
+
+  it("setEditTool changes the active tool and resets rotation", () => {
+    const game = makeGame();
+    game.enterEditor();
+    game.rotateEditTool(); // no-op for cell
+    game.setEditTool("T");
+    expect(game.snapshot.editTool).toBe("T");
+    expect(game.snapshot.editToolRotation).toBe(0);
+  });
+
+  it("rotateEditTool cycles 0→1→2→3→0 for piece tools", () => {
+    const game = makeGame();
+    game.enterEditor();
+    game.setEditTool("T");
+    expect(game.snapshot.editToolRotation).toBe(0);
+    game.rotateEditTool();
+    expect(game.snapshot.editToolRotation).toBe(1);
+    game.rotateEditTool();
+    game.rotateEditTool();
+    game.rotateEditTool();
+    expect(game.snapshot.editToolRotation).toBe(0);
+  });
+
+  it("rotateEditTool is no-op when tool is 'cell'", () => {
+    const game = makeGame();
+    game.enterEditor();
+    game.rotateEditTool();
+    expect(game.snapshot.editToolRotation).toBe(0);
+  });
+
+  it("editPlaceAt with piece tool places 4 cells with that piece's kind", () => {
+    const game = makeGame();
+    game.enterEditor();
+    game.setEditTool("O");
+    // O-piece cells: (0,0),(1,0),(0,1),(1,1) — at (col=4, row=10) → (4,10),(5,10),(4,11),(5,11)
+    game.editPlaceAt(4, 10);
+    expect(game.snapshot.editGrid[10][4]).toBe("O");
+    expect(game.snapshot.editGrid[10][5]).toBe("O");
+    expect(game.snapshot.editGrid[11][4]).toBe("O");
+    expect(game.snapshot.editGrid[11][5]).toBe("O");
+  });
+
+  it("editPlaceAt with cell tool toggles a single cell (legacy behavior)", () => {
+    const game = makeGame();
+    game.enterEditor();
+    game.editPlaceAt(3, 19);
+    expect(game.snapshot.editGrid[19][3]).toBe("garbage");
+    game.editPlaceAt(3, 19);
+    expect(game.snapshot.editGrid[19][3]).toBeNull();
+  });
+
+  it("editPlaceAt with piece tool refuses to overlap existing cells", () => {
+    const game = makeGame();
+    game.enterEditor();
+    game.setEditTool("O");
+    game.editPlaceAt(4, 10);
+    const filledBefore = game.snapshot.editGrid.flat().filter((c) => c !== null).length;
+    // Try to place another O at the same position — should fail (BLOCKED)
+    game.editPlaceAt(4, 10);
+    const filledAfter = game.snapshot.editGrid.flat().filter((c) => c !== null).length;
+    expect(filledAfter).toBe(filledBefore);
+  });
+
+  it("editPlaceAt refuses out-of-bounds piece placements", () => {
+    const game = makeGame();
+    game.enterEditor();
+    game.setEditTool("I");
+    // I horizontal: cells (-1,0)(0,0)(1,0)(2,0). At col=9: cells (8..11) → 11 out of bounds.
+    game.editPlaceAt(9, 10);
+    expect(game.snapshot.editGrid.flat().every((c) => c === null)).toBe(true);
+  });
+});
+
 describe("Editor — editToggleCell", () => {
   beforeEach(() => localStorage.clear());
 

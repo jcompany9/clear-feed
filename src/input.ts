@@ -86,7 +86,7 @@ export class InputController {
       this.game.setTouchTrail([]);
     } else if (mode === "editing") {
       if (isTap) {
-        // FINISH 버튼 우선
+        // 우선순위: FINISH 버튼 > 툴바 > 보드 셀
         if (this.renderer.isFinishButton(event.clientX, event.clientY)) {
           const status = this.game.snapshot.editStatus;
           if (status === "ready") {
@@ -94,11 +94,14 @@ export class InputController {
           } else if (status !== "generating") {
             this.game.generateEditedPuzzle();
           }
-          // generating 중이면 무시 (이미 진행 중)
         } else {
-          // 그 외 = 셀 토글
-          const cell = this.renderer.screenToCell(event.clientX, event.clientY);
-          if (cell) this.game.editToggleCell(cell.col, cell.row);
+          const tool = this.renderer.screenToTool(event.clientX, event.clientY);
+          if (tool !== null) {
+            this.game.setEditTool(tool);
+          } else {
+            const cell = this.renderer.screenToCell(event.clientX, event.clientY);
+            if (cell) this.game.editPlaceAt(cell.col, cell.row);
+          }
         }
       }
       this.game.setTouchTrail([]);
@@ -144,6 +147,7 @@ export class InputController {
     } else if (mode === "editing") {
       if (event.key === "+" || event.key === "=") this.game.setEditQueueLength(1);
       if (event.key === "-" || event.key === "_") this.game.setEditQueueLength(-1);
+      if (event.key.toLowerCase() === "r") this.game.rotateEditTool();
       if (event.key.toLowerCase() === "g" && this.game.snapshot.editStatus !== "generating") {
         this.game.generateEditedPuzzle();
       }

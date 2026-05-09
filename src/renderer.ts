@@ -1,5 +1,5 @@
 import { COLS, ROWS, type Cell, type GameSnapshot, type PieceKind, type Puzzle } from "./gameTypes";
-import { absoluteCells } from "./pieces";
+import { absoluteCells, createPiece, rotatePiece } from "./pieces";
 import { PIECE_COLORS, TOKENS, clearColorCache, resolveCssVar } from "./colors";
 
 const CELL_HIGHLIGHT = "rgba(255, 255, 255, 0.45)";
@@ -22,6 +22,8 @@ export class Renderer {
   // 버튼 클릭 영역
   private editButton: { x: number; y: number; w: number; h: number } | null = null;
   private finishButton: { x: number; y: number; w: number; h: number } | null = null;
+  // 에디터 도구 박스 클릭 영역
+  private editToolBoxes: Array<{ x: number; y: number; w: number; h: number; tool: "cell" | PieceKind }> = [];
 
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d", { alpha: false });
@@ -67,6 +69,16 @@ export class Renderer {
     return screenX >= b.x && screenX <= b.x + b.w && screenY >= b.y && screenY <= b.y + b.h;
   }
 
+  /** 화면 좌표가 에디터 툴바 박스 위에 있으면 그 도구, 아니면 null */
+  screenToTool(screenX: number, screenY: number): "cell" | PieceKind | null {
+    for (const box of this.editToolBoxes) {
+      if (screenX >= box.x && screenX <= box.x + box.w && screenY >= box.y && screenY <= box.y + box.h) {
+        return box.tool;
+      }
+    }
+    return null;
+  }
+
   resize(): void {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.width = Math.floor(window.innerWidth);
@@ -98,9 +110,14 @@ export class Renderer {
   }
 
   private renderEditor(snapshot: GameSnapshot, board: DOMRect): void {
-    const cell = Math.floor(Math.min(board.width / COLS, board.height / ROWS));
+    const screen = this.screenRect();
+    // 화면 아래 110px은 툴바 + 상태배너 + 버튼 + 힌트용
+    const reservedBottom = 110;
+    const limit = screen.y + screen.height - reservedBottom;
+    const usableHeight = Math.max(40, Math.min(board.height, limit - board.y));
+    const cell = Math.floor(Math.min(board.width / COLS, usableHeight / ROWS));
     const ox = board.x + (board.width - cell * COLS) / 2;
-    const oy = board.y + (board.height - cell * ROWS) / 2;
+    const oy = board.y + (usableHeight - cell * ROWS) / 2;
     const boardW = cell * COLS;
     const boardH = cell * ROWS;
     this.boardOx = ox;
@@ -121,15 +138,81 @@ export class Renderer {
       this.line(ox, oy + y * cell + 0.5, ox + boardW, oy + y * cell + 0.5);
     }
 
-    // editGrid 셀 그리기 (모두 garbage 컬러)
+    // editGrid 셀 그리기 — 각 셀의 실제 kind 색상으로 (사용자가 어떤 피스 놓았는지 시각적으로 보임)
     snapshot.editGrid.forEach((row, y) => {
       row.forEach((c, x) => {
-        if (c) this.drawCell(ox, oy, cell, x, y, "garbage", 1, false);
+        if (c) this.drawCell(ox, oy, cell, x, y, c, 1, false);
       });
     });
 
     // 외곽선
     this.pixelStroke(ox, oy, boardW, boardH, 3, resolveCssVar(TOKENS.ink));
+
+    // 툴바 — 보드 바로 아래
+    this.renderEditorToolbar(snapshot, oy + boardH + 10);
+  }
+
+  private renderEditorToolbar(snapshot: GameSnapshot, toolbarY: number): void {
+    this.editToolBoxes = [];
+    const screen = this.screenRect();
+    const tools: Array<"cell" | PieceKind> = ["cell", "I", "O", "T", "L", "J", "S", "Z"];
+    const boxSize = 30;
+    const gap = 3;
+    const totalW = tools.length * boxSize + (tools.length - 1) * gap;
+    const startX = screen.x + (screen.width - totalW) / 2;
+
+    for (let i = 0; i < tools.length; i += 1) {
+      const tool = tools[i];
+      const bx = startX + i * (boxSize + gap);
+      const by = toolbarY;
+      this.editToolBoxes.push({ x: bx, y: by, w: boxSize, h: boxSize, tool });
+
+      const isSelected = tool === snapshot.editTool;
+
+      // 카드 배경
+      this.ctx.fillStyle = resolveCssVar(TOKENS.bgPanel);
+      this.ctx.fillRect(bx, by, boxSize, boxSize);
+
+      if (tool === "cell") {
+        // 셀 모드: 가운데 작은 사각형
+        this.ctx.fillStyle = resolveCssVar(TOKENS.ink);
+        const dotSize = 6;
+        this.ctx.fillRect(bx + boxSize / 2 - dotSize / 2, by + boxSize / 2 - dotSize / 2, dotSize, dotSize);
+      } else {
+        // 피스 미니: 회전 적용 (선택된 도구만)
+        let piece = createPiece(tool);
+        if (isSelected) {
+          for (let r = 0; r < snapshot.editToolRotation; r += 1) piece = rotatePiece(piece);
+        }
+        const cells = piece.cells;
+        const minX = Math.min(...cells.map((c) => c.x));
+        const maxX = Math.max(...cells.map((c) => c.x));
+        const minY = Math.min(...cells.map((c) => c.y));
+        const maxY = Math.max(...cells.map((c) => c.y));
+        const w = maxX - minX + 1;
+        const h = maxY - minY + 1;
+        const miniSize = Math.floor(Math.min((boxSize - 8) / w, (boxSize - 8) / h));
+        const offsetX = bx + (boxSize - w * miniSize) / 2;
+        const offsetY = by + (boxSize - h * miniSize) / 2;
+        const colors = PIECE_COLORS[tool];
+        cells.forEach((c) => {
+          const px = offsetX + (c.x - minX) * miniSize;
+          const py = offsetY + (c.y - minY) * miniSize;
+          this.ctx.fillStyle = resolveCssVar(colors.fill);
+          this.ctx.fillRect(px, py, miniSize, miniSize);
+          this.ctx.strokeStyle = resolveCssVar(colors.stroke);
+          this.ctx.lineWidth = 1;
+          this.ctx.strokeRect(px + 0.5, py + 0.5, miniSize - 1, miniSize - 1);
+        });
+      }
+
+      // 외곽선 (선택은 굵게 + accent)
+      if (isSelected) {
+        this.pixelStroke(bx, by, boxSize, boxSize, 2, resolveCssVar(TOKENS.accent));
+      } else {
+        this.pixelStroke(bx, by, boxSize, boxSize, 1, resolveCssVar(TOKENS.ink));
+      }
+    }
   }
 
   private renderTouchTrail(snapshot: GameSnapshot): void {
@@ -551,7 +634,7 @@ export class Renderer {
       this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
       this.ctx.fillStyle = resolveCssVar(TOKENS.inkMute);
       this.ctx.fillText(
-        "+/- LENGTH   ESC EXIT",
+        "+/- LENGTH   R ROTATE   ESC EXIT",
         screen.x + screen.width / 2,
         btnY - 22,
       );

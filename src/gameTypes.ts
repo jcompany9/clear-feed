@@ -73,4 +73,6 @@ export interface GameSnapshot {
   editQueueLength: number;           // 큐 길이 설정 (1~10)
   editFoundQueue: PieceKind[] | null;  // generate 후 발견된 큐
   editStatus: "idle" | "generating" | "ready" | "no-solution";
+  editTool: "cell" | PieceKind;      // 현재 선택 도구 (셀 토글 또는 테트로미노)
+  editToolRotation: number;          // 피스 도구의 회전 (0~3)
 }
