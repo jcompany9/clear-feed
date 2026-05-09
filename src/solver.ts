@@ -1,5 +1,7 @@
-import { COLS, ROWS, type Cell, type Piece, type PieceKind, type Puzzle } from "./gameTypes";
+import { COLS, ROWS, type Cell, type Difficulty, type Piece, type PieceKind, type Puzzle } from "./gameTypes";
 import { absoluteCells, createPiece, rotatePiece } from "./pieces";
+
+const ALL_KINDS: PieceKind[] = ["I", "O", "T", "L", "J", "S", "Z"];
 
 /** 각 피스 종류의 고유 회전 수 (대칭 활용) */
 const ROTATIONS_PER_KIND: Record<PieceKind, number> = {
@@ -101,6 +103,57 @@ function rotateNTimes(piece: Piece, n: number): Piece {
   let p = piece;
   for (let i = 0; i < n; i += 1) p = rotatePiece(p);
   return p;
+}
+
+export interface FoundQueue {
+  queue: PieceKind[];
+  steps: SolverStep[];
+  attempts: number;
+  totalTimeMs: number;
+}
+
+/**
+ * 사용자가 디자인한 보드(grid)에 대해 풀이 가능한 큐를 찾는다.
+ * 무작위 큐 생성 → solve() 검증 반복.
+ *
+ * @param grid     사용자가 쌓은 보드 (사전 채움)
+ * @param length   큐 길이 (피스 개수)
+ * @param maxAttempts 시도 한도 (기본 50)
+ * @param rng      난수 함수 (테스트용 — 기본은 Math.random)
+ * @returns        풀리는 큐 + 풀이 시퀀스, 못 찾으면 null
+ */
+export function findSolvableQueue(
+  grid: Cell[][],
+  length: number,
+  maxAttempts = 50,
+  rng: () => number = Math.random,
+): FoundQueue | null {
+  const start = performance.now();
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const queue: PieceKind[] = [];
+    for (let i = 0; i < length; i += 1) {
+      queue.push(ALL_KINDS[Math.floor(rng() * ALL_KINDS.length)]);
+    }
+    const probe: Puzzle = {
+      seed: 0,
+      template: "near-line",
+      difficulty: "Easy" as Difficulty,
+      grid,
+      queue,
+      targetLines: 0,
+      movesLimit: length,
+    };
+    const result = solve(probe);
+    if (result.solvable && result.steps) {
+      return {
+        queue,
+        steps: result.steps,
+        attempts: attempt,
+        totalTimeMs: performance.now() - start,
+      };
+    }
+  }
+  return null;
 }
 
 function cloneGrid(grid: Cell[][]): Cell[][] {

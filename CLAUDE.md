@@ -100,6 +100,17 @@ solve(puzzle: Puzzle, maxNodes = 200000): SolverResult
 - 자동 생성 퍼즐 필터링 (createFeedPuzzle 결과 중 unsolvable 제외)
 - 힌트 시스템 (다음 한 수만 노출)
 
+### findSolvableQueue (큐 자동 생성)
+```ts
+findSolvableQueue(grid, length, maxAttempts = 50, rng?): FoundQueue | null
+```
+사용자가 보드만 디자인하면, 시스템이 풀이 가능한 큐를 자동으로 찾아주는 함수.
+무작위 큐 생성 → solve()로 검증을 반복. 처음 풀리는 큐 + 풀이 시퀀스 반환.
+
+UGC 에디터 옵션 A의 핵심: "쌓기만 해, 큐는 알아서 만들어줄게".
+
+해결 못 하면 (50번 다 실패) null 반환 → "이 보드는 풀 수 없는 모양"으로 사용자에게 안내.
+
 ### 핵심 최적화
 - 피스별 회전 수: O=1, I/S/Z=2, T/L/J=4 (대칭)
 - 유효 x 범위 사전 계산 (회전된 모양의 minRel/maxRel 기반)

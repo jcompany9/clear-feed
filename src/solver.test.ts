@@ -1,7 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { solve } from "./solver";
+import { findSolvableQueue, solve } from "./solver";
 import { COLS, ROWS, type Cell, type Difficulty, type PieceKind, type Puzzle } from "./gameTypes";
 import { createFeedPuzzle } from "./puzzleGenerator";
+
+/** 결정론적 RNG (테스트 안정성) — 시드 기반 LCG */
+function makeSeededRng(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
 
 function emptyGrid(): Cell[][] {
   return Array.from({ length: ROWS }, () => Array.from({ length: COLS }, () => null));
@@ -88,6 +97,47 @@ describe("solver — SolverStep shape", () => {
     expect(typeof step.rotation).toBe("number");
     expect(step.rotation).toBeGreaterThanOrEqual(0);
     expect(step.rotation).toBeLessThan(4);
+  });
+});
+
+describe("findSolvableQueue", () => {
+  it("finds a 1-piece queue that solves a row-19-with-4-gap board", () => {
+    const grid = Array.from({ length: ROWS }, () => Array.from({ length: COLS }, () => null as Cell));
+    grid[19] = ["I", "I", "I", null, null, null, null, "I", "I", "I"];
+    const found = findSolvableQueue(grid, 1, 50, makeSeededRng(42));
+    expect(found).not.toBeNull();
+    expect(found!.queue).toHaveLength(1);
+    // I-piece가 가장 명확한 풀이 — 발견된 큐로 다시 solve 했을 때 풀려야 함
+    const verify = solve({
+      seed: 0,
+      template: "near-line",
+      difficulty: "Easy" as Difficulty,
+      grid,
+      queue: found!.queue,
+      targetLines: 0,
+      movesLimit: 1,
+    });
+    expect(verify.solvable).toBe(true);
+  });
+
+  it("returns null when board is unclearable (walls prevent clearing forever)", () => {
+    const grid = Array.from({ length: ROWS }, () => Array.from({ length: COLS }, () => null as Cell));
+    // 행 1에 벽 + 다른 셀 — 절대 클리어 불가 (벽이 클리어 막음)
+    grid[1] = ["wall", "wall", null, null, null, null, null, null, "wall", "wall"];
+    grid[19] = ["I", "I", "I", null, null, null, null, "I", "I", "I"];
+    const found = findSolvableQueue(grid, 1, 8, makeSeededRng(7));
+    expect(found).toBeNull();
+  });
+
+  it("returns the requested queue length when found", () => {
+    const grid = Array.from({ length: ROWS }, () => Array.from({ length: COLS }, () => null as Cell));
+    grid[19] = ["I", "I", "I", null, null, null, null, "I", "I", "I"];
+    const found = findSolvableQueue(grid, 1, 30, makeSeededRng(100));
+    expect(found).not.toBeNull();
+    expect(found!.queue).toHaveLength(1);
+    expect(found!.attempts).toBeGreaterThanOrEqual(1);
+    expect(found!.attempts).toBeLessThanOrEqual(30);
+    expect(found!.steps).toBeDefined();
   });
 });
 
