@@ -1,4 +1,5 @@
 import type { Game } from "./game";
+import type { Renderer } from "./renderer";
 
 interface TouchState {
   id: number;
@@ -10,7 +11,11 @@ interface TouchState {
 export class InputController {
   private touch: TouchState | null = null;
 
-  constructor(private canvas: HTMLCanvasElement, private game: Game) {
+  constructor(
+    private canvas: HTMLCanvasElement,
+    private game: Game,
+    private renderer: Renderer,
+  ) {
     canvas.addEventListener("pointerdown", this.onDown, { passive: false });
     canvas.addEventListener("pointerup", this.onUp, { passive: false });
     canvas.addEventListener("pointercancel", this.onCancel, { passive: false });
@@ -40,11 +45,19 @@ export class InputController {
     const vertical = Math.abs(dy) > Math.abs(dx) * 1.15;
     const isTap = Math.abs(dx) < 24 && Math.abs(dy) < 24 && elapsed < 320;
 
-    if (mode === "playing") {
-      if (horizontal && Math.abs(dx) > 38) this.game.move(dx < 0 ? -1 : 1);
-      else if (vertical && dy > 52) this.game.hardDrop();
-      else if (vertical && dy < -52) this.game.abandon();
-      else if (isTap) this.game.rotate();
+    if (mode === "planning") {
+      // Planning: 탭 = 그 컬럼에 현재 큐 피스 배치
+      // 위로 스와이프 = 포기, 아래로 스와이프 = 마지막 placement undo
+      if (vertical && dy < -52) {
+        this.game.abandon();
+      } else if (vertical && dy > 52) {
+        this.game.undoLastPlacement();
+      } else if (isTap) {
+        const col = this.renderer.screenToColumn(event.clientX, event.clientY);
+        if (col !== null) {
+          this.game.placeAt(col);
+        }
+      }
     } else if (horizontal && dx < -70) {
       this.game.challengeFeed();
     } else if (horizontal && dx > 70) {
@@ -52,10 +65,12 @@ export class InputController {
     } else if (vertical && Math.abs(dy) > 58) {
       if (dy < 0) this.game.nextFeed(1);
       else this.game.nextFeed(-1);
-    } else if (mode === "clear" || mode === "failed") {
-      this.game.retry();
+    } else if (mode === "failed") {
+      if (isTap) this.game.retry();
+    } else if (mode === "clear") {
+      if (isTap) this.game.advance();
     } else if (isTap) {
-      this.game.startPlaying();
+      this.game.startPlanning();
     }
     this.touch = null;
   };
@@ -67,12 +82,23 @@ export class InputController {
   };
 
   private onKey = (event: KeyboardEvent): void => {
-    if (event.key === "ArrowLeft") this.game.move(-1);
-    if (event.key === "ArrowRight") this.game.move(1);
-    if (event.key === "ArrowUp" || event.key === " ") this.game.rotate();
-    if (event.key === "ArrowDown" || event.key === "Enter") this.game.hardDrop();
+    const mode = this.game.snapshot.mode;
+    if (mode === "planning") {
+      if (event.key === "ArrowUp" || event.key === " " || event.key.toLowerCase() === "r") {
+        this.game.rotatePlanningPiece();
+      }
+      if (event.key === "Backspace" || event.key.toLowerCase() === "u") {
+        this.game.undoLastPlacement();
+      }
+      if (event.key === "Escape") this.game.abandon();
+    } else if (mode === "failed") {
+      if (event.key === "Enter" || event.key === " ") this.game.retry();
+    } else if (mode === "clear") {
+      if (event.key === "Enter" || event.key === " ") this.game.advance();
+    } else if (mode === "feed") {
+      if (event.key === "Enter" || event.key === " ") this.game.startPlanning();
+    }
     if (event.key.toLowerCase() === "s") this.game.toggleSound();
     if (event.key.toLowerCase() === "c") this.game.copyShareUrl();
-    if (event.key === "Escape") this.game.abandon();
   };
 }

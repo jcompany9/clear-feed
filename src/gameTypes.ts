@@ -3,7 +3,7 @@ export const ROWS = 20;
 
 export type PieceKind = "I" | "O" | "T" | "L" | "J" | "S" | "Z";
 export type Difficulty = "Easy" | "Normal" | "Challenge";
-export type GameMode = "feed" | "playing" | "clear" | "failed";
+export type GameMode = "feed" | "planning" | "clear" | "failed";
 
 export type Cell = PieceKind | "garbage" | "wall" | null;
 
@@ -62,4 +62,8 @@ export interface GameSnapshot {
   feedIndex: number;
   soundOn: boolean;
   animation: AnimationState;
+  // Planning 모드 전용
+  queueIndex: number;        // 다음 배치할 큐 위치 (0-indexed)
+  attempts: number;          // 현재 퍼즐 시도 횟수 (실패 누적)
+  currentRotation: number;   // 다음 배치할 피스의 회전 상태 (0~3)
 }

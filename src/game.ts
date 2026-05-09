@@ -4,20 +4,21 @@ import { createFeedPuzzle, createInitialFeed } from "./puzzleGenerator";
 import { loadStorage, rememberPuzzle, setSoundOn } from "./storage";
 import { SoundSystem } from "./sound";
 
-const GRAVITY_MS = 620;
-const LOCK_DELAY_MS = 280;
+interface PlacementSnapshot {
+  grid: Cell[][];
+  queueIndex: number;
+  rotation: number;
+}
 
 export class Game {
   private mode: GameMode = "feed";
   private feed: FeedItem[];
   private feedIndex = 0;
   private grid: Cell[][];
-  private current: Piece | null = null;
-  private queue: Puzzle["queue"] = [];
-  private blocksLeft = 0;
-  private linesCleared = 0;
-  private lastFallAt = performance.now();
-  private touchingFloorAt = 0;
+  private queueIndex = 0;
+  private currentRotation = 0;
+  private attempts = 0;
+  private placementHistory: PlacementSnapshot[] = [];
   private sound: SoundSystem;
   private animation: AnimationState = {
     landedAt: 0,
@@ -51,18 +52,21 @@ export class Game {
       mode: this.mode,
       puzzle: this.activePuzzle,
       grid: this.grid,
-      current: this.current,
-      next: this.queue[0] ?? null,
-      blocksLeft: this.blocksLeft,
-      linesCleared: this.linesCleared,
+      current: null,
+      next: this.mode === "planning" ? this.peekQueue() : this.activePuzzle.queue[0] ?? null,
+      blocksLeft: this.activePuzzle.queue.length - this.queueIndex,
+      linesCleared: 0,
       feed: this.feed,
       feedIndex: this.feedIndex,
       soundOn: this.sound.isEnabled,
       animation: this.animation,
+      queueIndex: this.queueIndex,
+      attempts: this.attempts,
+      currentRotation: this.currentRotation,
     };
   }
 
-  update(now: number): void {
+  update(_now: number): void {
     this.animation.feedSlide *= 0.86;
     this.animation.feedSlideX *= 0.86;
     this.animation.feedShake *= 0.78;
@@ -70,29 +74,153 @@ export class Game {
       this.animation.previousPuzzle = undefined;
       this.animation.previousGrid = undefined;
     }
-    if (this.mode !== "playing" || !this.current) return;
-    if (now - this.lastFallAt > GRAVITY_MS) {
-      this.softDrop(now);
-    }
-    if (this.isTouchingFloor() && this.touchingFloorAt && now - this.touchingFloorAt > LOCK_DELAY_MS) {
-      this.lockPiece(now);
-    }
   }
 
-  startPlaying(): void {
-    if (this.mode === "playing") return;
-    this.mode = "playing";
+  startPlanning(): void {
+    if (this.mode === "planning") return;
+    this.mode = "planning";
     this.grid = cloneGrid(this.activePuzzle.grid);
-    this.queue = [...this.activePuzzle.queue];
-    this.blocksLeft = this.activePuzzle.movesLimit;
-    this.linesCleared = 0;
+    this.queueIndex = 0;
+    this.currentRotation = 0;
+    this.attempts = 0;
+    this.placementHistory = [];
     this.animation.message = "";
-    this.spawnNext();
     this.sound.unlock();
   }
 
+  /** 현재 큐에서 다음에 배치할 피스 (planning 모드 한정) */
+  private peekQueue(): "I" | "O" | "T" | "L" | "J" | "S" | "Z" | null {
+    if (this.queueIndex >= this.activePuzzle.queue.length) return null;
+    return this.activePuzzle.queue[this.queueIndex];
+  }
+
+  rotatePlanningPiece(): void {
+    if (this.mode !== "planning") return;
+    if (this.queueIndex >= this.activePuzzle.queue.length) return;
+    this.currentRotation = (this.currentRotation + 1) % 4;
+    this.sound.play("rotate");
+  }
+
+  /** 클릭한 컬럼에 현재 큐 피스를 떨어뜨려 배치 */
+  placeAt(targetX: number): void {
+    if (this.mode !== "planning") return;
+    const kind = this.peekQueue();
+    if (!kind) return;
+
+    let piece = createPiece(kind);
+    for (let i = 0; i < this.currentRotation; i += 1) {
+      piece = rotatePiece(piece);
+    }
+    piece = { ...piece, x: targetX, y: -2 };
+
+    // 중력 시뮬레이션 — 가장 낮은 가능 위치까지 떨어뜨림
+    while (this.canPlace({ ...piece, y: piece.y + 1 })) {
+      piece = { ...piece, y: piece.y + 1 };
+    }
+
+    if (!this.canPlace(piece)) {
+      this.flashToast("CAN'T PLACE");
+      return;
+    }
+
+    // undo 용 스냅샷
+    this.placementHistory.push({
+      grid: cloneGrid(this.grid),
+      queueIndex: this.queueIndex,
+      rotation: this.currentRotation,
+    });
+
+    // 셀 잠그기
+    const cells = absoluteCells(piece);
+    for (const cell of cells) {
+      if (cell.y >= 0 && cell.y < ROWS && cell.x >= 0 && cell.x < COLS) {
+        this.grid[cell.y][cell.x] = piece.kind;
+      }
+    }
+
+    this.animation.landedAt = performance.now();
+    this.animation.landingCells = cells;
+    this.sound.play("land");
+
+    // 라인 클리어
+    this.clearLines(performance.now());
+
+    this.queueIndex += 1;
+    this.currentRotation = 0;
+
+    if (this.queueIndex >= this.activePuzzle.queue.length) {
+      this.evaluate();
+    }
+  }
+
+  undoLastPlacement(): void {
+    if (this.mode !== "planning") return;
+    const prev = this.placementHistory.pop();
+    if (!prev) return;
+    this.grid = prev.grid;
+    this.queueIndex = prev.queueIndex;
+    this.currentRotation = prev.rotation;
+    this.sound.play("move");
+  }
+
+  /** 모든 피스 배치 후 결과 평가 */
+  private evaluate(): void {
+    this.attempts += 1;
+    const isEmpty = this.grid.every((row) => row.every((cell) => cell === null));
+    if (isEmpty) {
+      this.mode = "clear";
+      this.animation.message = this.attempts === 1 ? "HOLE IN ONE" : `SOLVED IN ${this.attempts}`;
+      this.feed[this.feedIndex].cleared = true;
+      rememberPuzzle(this.activePuzzle, true);
+      this.sound.play("clear");
+      this.appendPuzzle();
+    } else {
+      this.mode = "failed";
+      this.animation.message = `MISS — TRY ${this.attempts + 1}`;
+      this.sound.play("fail");
+    }
+    this.animation.messageStartedAt = performance.now();
+  }
+
+  /** 실패 후 같은 퍼즐 다시 시도 (attempts 누적) */
+  retry(): void {
+    if (this.mode !== "failed" && this.mode !== "clear") return;
+    if (this.mode === "clear") {
+      // 클리어 후 다시 시도하면 카운터 리셋 + 같은 퍼즐
+      this.attempts = 0;
+    }
+    this.grid = cloneGrid(this.activePuzzle.grid);
+    this.queueIndex = 0;
+    this.currentRotation = 0;
+    this.placementHistory = [];
+    this.mode = "planning";
+    this.animation.message = "";
+  }
+
+  /** 클리어 후 다음 퍼즐로 진행 */
+  advance(): void {
+    if (this.mode !== "clear") return;
+    this.attempts = 0;
+    this.mode = "feed";
+    this.captureFeedTransition();
+    this.feedIndex = Math.min(this.feedIndex + 1, this.feed.length - 1);
+    this.grid = cloneGrid(this.activePuzzle.grid);
+    this.animation.feedSlide = 1.15;
+    this.animation.message = "";
+  }
+
+  abandon(): void {
+    if (this.mode !== "planning") return;
+    this.mode = "feed";
+    this.attempts = 0;
+    this.grid = cloneGrid(this.activePuzzle.grid);
+    this.queueIndex = 0;
+    this.currentRotation = 0;
+    this.placementHistory = [];
+  }
+
   nextFeed(direction: 1 | -1): void {
-    if (this.mode === "playing") return;
+    if (this.mode === "planning") return;
     const nextIndex = Math.max(0, this.feedIndex + direction);
     if (nextIndex === this.feedIndex) {
       this.animation.feedSlide = direction * 0.18;
@@ -102,21 +230,23 @@ export class Game {
       return;
     }
     this.captureFeedTransition();
-    if (nextIndex >= this.feed.length - 2) this.appendPuzzle(false);
+    if (nextIndex >= this.feed.length - 2) this.appendPuzzle();
     this.feedIndex = Math.min(nextIndex, this.feed.length - 1);
     this.grid = cloneGrid(this.activePuzzle.grid);
+    this.attempts = 0;
     this.animation.feedSlide = direction * 1.15;
     this.animation.feedSlideX = 0;
     this.sound.play("feed");
   }
 
   challengeFeed(): void {
-    if (this.mode === "playing") return;
+    if (this.mode === "planning") return;
     if (this.activePuzzle.difficulty === "Challenge") return;
     this.captureFeedTransition();
     const seed = this.activePuzzle.seed + 777 + this.feedIndex * 13;
     this.feed.splice(this.feedIndex + 1, 0, { puzzle: createFeedPuzzle(seed, true), cleared: false });
     this.feedIndex += 1;
+    this.attempts = 0;
     this.grid = cloneGrid(this.activePuzzle.grid);
     this.animation.feedSlide = 0;
     this.animation.feedSlideX = -1.15;
@@ -124,71 +254,16 @@ export class Game {
   }
 
   returnFromChallenge(): void {
-    if (this.mode === "playing" || this.activePuzzle.difficulty !== "Challenge") return;
+    if (this.mode === "planning" || this.activePuzzle.difficulty !== "Challenge") return;
     if (this.feedIndex > 0) {
       this.captureFeedTransition();
       this.feedIndex -= 1;
+      this.attempts = 0;
       this.grid = cloneGrid(this.activePuzzle.grid);
       this.animation.feedSlide = 0;
       this.animation.feedSlideX = 1.15;
       this.sound.play("feed");
     }
-  }
-
-  otherFeed(): void {
-    if (this.mode === "playing") return;
-    this.captureFeedTransition();
-    const seed = this.activePuzzle.seed + 1301 + Math.floor(performance.now());
-    this.feed.splice(this.feedIndex + 1, 0, { puzzle: createFeedPuzzle(seed, false), cleared: false });
-    this.feedIndex += 1;
-    this.feed = this.feed.slice(-12);
-    this.grid = cloneGrid(this.activePuzzle.grid);
-    this.animation.feedSlide = 1.15;
-    this.animation.feedSlideX = 0;
-    this.sound.play("feed");
-  }
-
-  move(dx: -1 | 1): void {
-    if (!this.current || this.mode !== "playing") return;
-    const moved = { ...this.current, x: this.current.x + dx };
-    if (this.canPlace(moved)) {
-      this.current = moved;
-      this.touchingFloorAt = 0;
-      this.sound.play("move");
-    }
-  }
-
-  rotate(): void {
-    if (!this.current || this.mode !== "playing") return;
-    const rotated = rotatePiece(this.current);
-    for (const kick of [0, -1, 1, -2, 2]) {
-      const kicked = { ...rotated, x: rotated.x + kick };
-      if (this.canPlace(kicked)) {
-        this.current = kicked;
-        this.touchingFloorAt = 0;
-        this.sound.play("rotate");
-        return;
-      }
-    }
-  }
-
-  hardDrop(): void {
-    if (!this.current || this.mode !== "playing") return;
-    let piece = this.current;
-    while (this.canPlace({ ...piece, y: piece.y + 1 })) {
-      piece = { ...piece, y: piece.y + 1 };
-    }
-    this.current = piece;
-    this.lockPiece(performance.now());
-  }
-
-  retry(): void {
-    this.startPlaying();
-  }
-
-  abandon(): void {
-    if (this.mode !== "playing") return;
-    this.end(false, "Almost");
   }
 
   toggleSound(): void {
@@ -200,98 +275,36 @@ export class Game {
     const seed = this.activePuzzle.seed;
     const base = `${window.location.origin}${window.location.pathname}`;
     const url = `${base}?seed=${seed}`;
-    const showToast = (msg: string): void => {
-      this.animation.toast = msg;
-      this.animation.toastAt = performance.now();
-    };
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(url).then(
-        () => showToast("LINK COPIED"),
-        () => showToast("COPY FAILED"),
+        () => this.flashToast("LINK COPIED"),
+        () => this.flashToast("COPY FAILED"),
       );
     } else {
-      showToast("COPY UNAVAILABLE");
+      this.flashToast("COPY UNAVAILABLE");
     }
   }
 
-  private softDrop(now: number): void {
-    if (!this.current) return;
-    const moved = { ...this.current, y: this.current.y + 1 };
-    if (this.canPlace(moved)) {
-      this.current = moved;
-      this.touchingFloorAt = 0;
-    } else if (!this.touchingFloorAt) {
-      this.touchingFloorAt = now;
-    }
-    this.lastFallAt = now;
+  private flashToast(msg: string): void {
+    this.animation.toast = msg;
+    this.animation.toastAt = performance.now();
   }
 
-  private lockPiece(now: number): void {
-    if (!this.current) return;
-    const cells = absoluteCells(this.current);
-    for (const cell of cells) {
-      if (cell.y >= 0 && cell.y < ROWS && cell.x >= 0 && cell.x < COLS) {
-        this.grid[cell.y][cell.x] = this.current.kind;
-      }
-    }
-    this.animation.landedAt = now;
-    this.animation.landingCells = cells;
-    this.blocksLeft -= 1;
-    this.sound.play("land");
-    this.clearLines(now);
-    if (this.linesCleared >= this.activePuzzle.targetLines) {
-      this.end(true, this.linesCleared > this.activePuzzle.targetLines ? "PERFECT" : "CLEAR");
-      return;
-    }
-    if (this.blocksLeft <= 0) {
-      this.end(false, "One More?");
-      return;
-    }
-    this.spawnNext();
-  }
-
-  private clearLines(now: number): void {
+  private clearLines(_now: number): void {
     const rows = this.grid
       .map((row, y) => (row.every(Boolean) && !row.some((cell) => cell === "wall") ? y : -1))
       .filter((row) => row >= 0);
     if (!rows.length) return;
     this.animation.clearingRows = rows;
-    this.animation.clearStartedAt = now;
-    this.linesCleared += rows.length;
+    this.animation.clearStartedAt = performance.now();
     this.grid = this.grid.filter((_, y) => !rows.includes(y));
     while (this.grid.length < ROWS) this.grid.unshift(Array.from({ length: COLS }, () => null));
     this.sound.play("line");
   }
 
-  private spawnNext(): void {
-    const next = this.queue.shift();
-    if (!next) {
-      this.end(false, "Try Again");
-      return;
-    }
-    this.current = createPiece(next);
-    this.current.y = 1;
-    this.lastFallAt = performance.now();
-    this.touchingFloorAt = 0;
-    if (!this.canPlace(this.current)) {
-      this.end(false, "Try Again");
-    }
-  }
-
-  private end(cleared: boolean, message: string): void {
-    this.mode = cleared ? "clear" : "failed";
-    this.animation.message = cleared ? message : message;
-    this.animation.messageStartedAt = performance.now();
-    this.feed[this.feedIndex].cleared = cleared;
-    rememberPuzzle(this.activePuzzle, cleared);
-    this.sound.play(cleared ? "clear" : "fail");
-    this.current = null;
-    this.appendPuzzle(false);
-  }
-
-  private appendPuzzle(challenge: boolean): void {
+  private appendPuzzle(): void {
     const seed = this.feed[this.feed.length - 1].puzzle.seed + 101 + this.feed.length * 7;
-    this.feed.push({ puzzle: createFeedPuzzle(seed, challenge), cleared: false });
+    this.feed.push({ puzzle: createFeedPuzzle(seed, false), cleared: false });
     this.feed = this.feed.slice(-12);
     this.feedIndex = Math.min(this.feedIndex, this.feed.length - 1);
   }
@@ -299,10 +312,6 @@ export class Game {
   private captureFeedTransition(): void {
     this.animation.previousPuzzle = this.activePuzzle;
     this.animation.previousGrid = cloneGrid(this.grid);
-  }
-
-  private isTouchingFloor(): boolean {
-    return Boolean(this.current && !this.canPlace({ ...this.current, y: this.current.y + 1 }));
   }
 
   private canPlace(piece: Piece): boolean {

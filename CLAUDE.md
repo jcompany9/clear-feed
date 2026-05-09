@@ -91,9 +91,37 @@ Vitest + happy-dom 기반. 순수 로직만 자동 테스트 (Canvas 렌더러�
 - 결정론적 시드 기반이라 백엔드 0개로 P2P 공유 가능
 - 추후: 진짜 맵 에디터 (천장/바닥/큐 직접 편집), 닉네임, 일일 챌린지
 
-## 게임 모드: Classic (현재)
+## 게임 모드: Planning ("Tetris Golf")
 
-원조 테트리스 룰. 위쪽이 비어있고 아래쪽에 사전 깔린 블록 위에 피스를 쌓아 라인을 클리어. 목표 라인 수와 무브 제한은 시드별로 가변.
+골프 메타포 기반 계획형 퍼즐.
+- **플레이**: 보드 컬럼 클릭 → 현재 큐 피스가 그 컬럼에 자동 떨어짐 (회전: R 키)
+- **승리**: 모든 큐 피스 배치 후 **보드가 완전히 비워져야 함** (모든 사전 블록 클리어)
+- **실패**: 큐 다 썼는데 블록 남음 → 보드 리셋, 시도 횟수 +1, 재계획
+- **스코어**: 시도 횟수 (낮을수록 좋음). 1회 = `HOLE IN ONE`, N회 = `SOLVED IN N`
+- **솔버블 보장**: 사용자가 직접 풀이를 짜기 때문에 별도 솔버 불필요
+
+### 코드 흐름
+- `Game.startPlanning()` — feed → planning 진입, 보드 리셋
+- `Game.placeAt(col)` — 현재 큐 피스를 col에 떨어뜨림 (중력 시뮬), 큐 인덱스 +1
+- `Game.rotatePlanningPiece()` — 다음 피스의 회전 0~3 사이 토글
+- `Game.undoLastPlacement()` — 마지막 배치 무르기 (스냅샷 기반)
+- 큐 끝에 도달 → `evaluate()` 자동 호출 → mode = `clear` 또는 `failed`
+- `Game.retry()` — failed에서 같은 퍼즐 재시도 (attempts 누적)
+- `Game.advance()` — clear에서 다음 퍼즐로
+
+### 상태 머신
+```
+feed ──tap──→ planning ──evaluate──→ clear ──tap──→ feed (next)
+                  │                    │
+                  └────evaluate───→ failed ──tap──→ planning (retry, attempts++)
+                  └────up swipe───→ feed (abandon)
+```
+
+### 입력 (planning 모드)
+- 탭(컬럼 클릭) = 그 컬럼에 배치
+- R / 위 화살표 / 스페이스 = 회전
+- 아래 스와이프 / U / Backspace = undo
+- 위 스와이프 / Esc = 포기
 
 ### Sandwich 모드 (제거됨, 부분 인프라 보존)
 이전에 시도한 천장 메커니즘은 commit `e9e5641`에서 추가되었다가 이번에 generator 호출 + 함수 정의 제거로 비활성화됨. 다음 인프라는 향후 다른 용도로 재사용 가능해서 유지:

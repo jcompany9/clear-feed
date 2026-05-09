@@ -15,12 +15,25 @@ export class Renderer {
   private width = 0;
   private height = 0;
   private dpr = 1;
+  // 마지막 렌더의 보드 위치/셀 크기 (screenToColumn 변환용)
+  private boardOx = 0;
+  private boardOy = 0;
+  private boardCell = 0;
 
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) throw new Error("Canvas 2D is not available.");
     this.ctx = ctx;
     this.resize();
+  }
+
+  /** 화면 좌표를 보드 컬럼 인덱스로 변환 (planning 클릭 처리용) */
+  screenToColumn(screenX: number, screenY: number): number | null {
+    if (this.boardCell <= 0) return null;
+    if (screenY < this.boardOy || screenY > this.boardOy + this.boardCell * ROWS) return null;
+    const col = Math.floor((screenX - this.boardOx) / this.boardCell);
+    if (col < 0 || col >= COLS) return null;
+    return col;
   }
 
   resize(): void {
@@ -119,18 +132,19 @@ export class Renderer {
     this.ctx.textBaseline = "middle";
     this.ctx.textAlign = "left";
     this.ctx.fillStyle = resolveCssVar(TOKENS.inkSoft);
-    this.ctx.fillText("LINES", screen.x + 14, top + 8);
-    this.ctx.fillText("BLOCKS", screen.x + screen.width - 80, top + 8);
+    this.ctx.fillText("PIECES", screen.x + 14, top + 8);
+    this.ctx.fillText("TRY", screen.x + screen.width - 80, top + 8);
 
     this.ctx.font = `bold 18px ${FONT_MONO_BASE}`;
     this.ctx.fillStyle = resolveCssVar(TOKENS.ink);
-    this.ctx.fillText(this.padNumber(snapshot.puzzle.targetLines, 2), screen.x + 14, top + 26);
+    const total = snapshot.puzzle.queue.length;
+    const placed = snapshot.queueIndex;
+    this.ctx.fillText(`${placed}/${total}`, screen.x + 14, top + 26);
 
     this.ctx.textAlign = "right";
-    const blocksLow = snapshot.blocksLeft <= 1 && snapshot.mode === "playing";
-    this.ctx.fillStyle = blocksLow ? resolveCssVar(TOKENS.danger) : resolveCssVar(TOKENS.ink);
-    const blocks = snapshot.mode === "feed" ? snapshot.puzzle.movesLimit : snapshot.blocksLeft;
-    this.ctx.fillText(this.padNumber(blocks, 2), screen.x + screen.width - 14, top + 26);
+    const tries = snapshot.attempts + (snapshot.mode === "planning" ? 1 : 0);
+    this.ctx.fillStyle = tries > 1 ? resolveCssVar(TOKENS.danger) : resolveCssVar(TOKENS.ink);
+    this.ctx.fillText(this.padNumber(Math.max(1, tries), 2), screen.x + screen.width - 14, top + 26);
     this.ctx.textAlign = "left";
 
     this.ctx.strokeStyle = resolveCssVar(TOKENS.ink);
@@ -194,6 +208,11 @@ export class Renderer {
     const oy = board.y + (board.height - cell * ROWS) / 2;
     const boardW = cell * COLS;
     const boardH = cell * ROWS;
+    if (active) {
+      this.boardOx = ox;
+      this.boardOy = oy;
+      this.boardCell = cell;
+    }
     const lockPulse = Math.max(0, 1 - (now - snapshot.animation.landedAt) / 120);
 
     // 보드 배경 (크림)
@@ -338,7 +357,7 @@ export class Renderer {
   }
 
   private renderGestureHints(snapshot: GameSnapshot): void {
-    if (snapshot.mode !== "playing") return;
+    if (snapshot.mode !== "planning") return;
     const screen = this.screenRect();
     this.ctx.save();
     this.ctx.globalAlpha = 0.6;
@@ -346,7 +365,7 @@ export class Renderer {
     this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
     this.ctx.fillStyle = resolveCssVar(TOKENS.inkMute);
     this.ctx.fillText(
-      "SWIPE MOVE   TAP ROTATE   DOWN DROP   UP QUIT",
+      "TAP COL PLACE   R ROTATE   DOWN UNDO   UP QUIT",
       screen.x + screen.width / 2,
       screen.y + screen.height - 14,
     );
@@ -391,7 +410,11 @@ export class Renderer {
     // 서브 텍스트
     this.ctx.font = `10px ${FONT_PIXEL_BASE}`;
     this.ctx.fillStyle = resolveCssVar(TOKENS.inkSoft);
-    this.ctx.fillText("TAP RETRY   SWIPE DOWN NEXT", this.width / 2, boxY + 100);
+    const subText =
+      snapshot.mode === "clear"
+        ? "TAP NEXT PUZZLE"
+        : "TAP TRY AGAIN";
+    this.ctx.fillText(subText, this.width / 2, boxY + 100);
 
     this.ctx.globalAlpha = 1;
     this.ctx.textAlign = "left";

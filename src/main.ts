@@ -11,7 +11,7 @@ const sound = new SoundSystem();
 const initialSeed = parseSeedFromUrl();
 const game = new Game(sound, initialSeed);
 const renderer = new Renderer(canvas);
-new InputController(canvas, game);
+new InputController(canvas, game, renderer);
 
 function parseSeedFromUrl(): number | undefined {
   const params = new URLSearchParams(window.location.search);
