@@ -1,5 +1,5 @@
 import { COLS, ROWS, type Cell, type GameSnapshot, type PieceKind, type Puzzle } from "./gameTypes";
-import { absoluteCells } from "./pieces";
+import { absoluteCells, createPiece } from "./pieces";
 import { GHOST_COLOR, PIECE_COLORS, TOKENS, clearColorCache, resolveCssVar } from "./colors";
 
 const CELL_HIGHLIGHT = "rgba(255, 255, 255, 0.45)";
@@ -19,6 +19,8 @@ export class Renderer {
   private boardOx = 0;
   private boardOy = 0;
   private boardCell = 0;
+  // 핸드 영역 클릭 검사용 (각 큐 인덱스의 화면 위치)
+  private handBoxes: { x: number; y: number; w: number; h: number; index: number }[] = [];
 
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d", { alpha: false });
@@ -36,6 +38,16 @@ export class Renderer {
     return col;
   }
 
+  /** 화면 좌표가 핸드 카드 위에 있으면 그 큐 인덱스, 없으면 null */
+  screenToHandIndex(screenX: number, screenY: number): number | null {
+    for (const box of this.handBoxes) {
+      if (screenX >= box.x && screenX <= box.x + box.w && screenY >= box.y && screenY <= box.y + box.h) {
+        return box.index;
+      }
+    }
+    return null;
+  }
+
   resize(): void {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.width = Math.floor(window.innerWidth);
@@ -51,6 +63,7 @@ export class Renderer {
   render(snapshot: GameSnapshot, now: number): void {
     this.background();
     this.renderTop(snapshot);
+    this.renderHand(snapshot);
     const board = this.boardRect();
     if (snapshot.mode === "feed") {
       this.renderFeed(snapshot, board, now);
@@ -439,9 +452,86 @@ export class Renderer {
 
   private boardRect(): DOMRect {
     const screen = this.screenRect();
-    const top = screen.y + 60;
+    const top = screen.y + 60 + 50; // +50 for hand area
     const bottom = screen.y + screen.height - 28;
     return new DOMRect(screen.x, top, screen.width, bottom - top);
+  }
+
+  private handAreaRect(): DOMRect {
+    const screen = this.screenRect();
+    return new DOMRect(screen.x + 12, screen.y + 56, screen.width - 24, 44);
+  }
+
+  private renderHand(snapshot: GameSnapshot): void {
+    this.handBoxes = [];
+    if (snapshot.mode !== "planning") return;
+    const area = this.handAreaRect();
+    const queue = snapshot.puzzle.queue;
+    const count = queue.length;
+    if (count === 0) return;
+
+    const boxSize = 32;
+    const gap = 4;
+    const totalW = count * boxSize + (count - 1) * gap;
+    const startX = area.x + Math.max(0, (area.width - totalW) / 2);
+    const yTop = area.y + (area.height - boxSize) / 2;
+
+    for (let i = 0; i < count; i += 1) {
+      const kind = queue[i];
+      const bx = startX + i * (boxSize + gap);
+      const by = yTop;
+      this.handBoxes.push({ x: bx, y: by, w: boxSize, h: boxSize, index: i });
+
+      const isUsed = snapshot.usedIndices.includes(i);
+      const isSelected = i === snapshot.selectedIndex && !isUsed;
+
+      // 카드 배경
+      this.ctx.fillStyle = resolveCssVar(isUsed ? TOKENS.bgScreen : TOKENS.bgPanel);
+      this.ctx.fillRect(bx, by, boxSize, boxSize);
+
+      // 미니 피스 그리기
+      const piece = createPiece(kind);
+      const cells = piece.cells;
+      const minX = Math.min(...cells.map((c) => c.x));
+      const maxX = Math.max(...cells.map((c) => c.x));
+      const minY = Math.min(...cells.map((c) => c.y));
+      const maxY = Math.max(...cells.map((c) => c.y));
+      const w = maxX - minX + 1;
+      const h = maxY - minY + 1;
+      const miniSize = Math.floor(Math.min((boxSize - 8) / w, (boxSize - 8) / h));
+      const offsetX = bx + (boxSize - w * miniSize) / 2;
+      const offsetY = by + (boxSize - h * miniSize) / 2;
+
+      const colors = PIECE_COLORS[kind];
+      this.ctx.globalAlpha = isUsed ? 0.25 : 1;
+      cells.forEach((c) => {
+        const px = offsetX + (c.x - minX) * miniSize;
+        const py = offsetY + (c.y - minY) * miniSize;
+        this.ctx.fillStyle = resolveCssVar(colors.fill);
+        this.ctx.fillRect(px, py, miniSize, miniSize);
+        this.ctx.strokeStyle = resolveCssVar(colors.stroke);
+        this.ctx.lineWidth = 1;
+        this.ctx.strokeRect(px + 0.5, py + 0.5, miniSize - 1, miniSize - 1);
+      });
+      this.ctx.globalAlpha = 1;
+
+      // 카드 테두리 (선택된 건 굵고 강조색)
+      if (isSelected) {
+        this.pixelStroke(bx, by, boxSize, boxSize, 2, resolveCssVar(TOKENS.accent));
+      } else {
+        this.pixelStroke(bx, by, boxSize, boxSize, 1, resolveCssVar(TOKENS.ink));
+      }
+
+      // 사용된 카드: 대각선
+      if (isUsed) {
+        this.ctx.strokeStyle = resolveCssVar(TOKENS.inkSoft);
+        this.ctx.lineWidth = 1.5;
+        this.ctx.beginPath();
+        this.ctx.moveTo(bx + 4, by + 4);
+        this.ctx.lineTo(bx + boxSize - 4, by + boxSize - 4);
+        this.ctx.stroke();
+      }
+    }
   }
 
   private innerRect(rect: DOMRect, pad: number): DOMRect {

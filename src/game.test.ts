@@ -47,6 +47,47 @@ describe("Game — initial state", () => {
     expect(game.snapshot.queueIndex).toBe(0);
     expect(game.snapshot.attempts).toBe(0);
   });
+
+  it("usedIndices starts empty and selectedIndex starts at 0", () => {
+    const game = makeGame();
+    expect(game.snapshot.usedIndices).toEqual([]);
+    expect(game.snapshot.selectedIndex).toBe(0);
+  });
+});
+
+describe("Game.selectPiece", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("selects an unused queue index", () => {
+    const game = makeGame();
+    game.startPlanning();
+    game.selectPiece(2);
+    expect(game.snapshot.selectedIndex).toBe(2);
+  });
+
+  it("ignores out-of-range indices", () => {
+    const game = makeGame();
+    game.startPlanning();
+    const before = game.snapshot.selectedIndex;
+    game.selectPiece(-1);
+    game.selectPiece(999);
+    expect(game.snapshot.selectedIndex).toBe(before);
+  });
+
+  it("does nothing in feed mode", () => {
+    const game = makeGame();
+    game.selectPiece(2);
+    expect(game.snapshot.selectedIndex).toBe(0);
+  });
+
+  it("resets currentRotation when selecting a different piece", () => {
+    const game = makeGame();
+    game.startPlanning();
+    game.rotatePlanningPiece();
+    expect(game.snapshot.currentRotation).toBe(1);
+    game.selectPiece(2);
+    expect(game.snapshot.currentRotation).toBe(0);
+  });
 });
 
 describe("Game.startPlanning", () => {
@@ -84,13 +125,25 @@ describe("Game.startPlanning", () => {
 describe("Game.placeAt", () => {
   beforeEach(() => localStorage.clear());
 
-  it("advances queueIndex by 1 when piece is successfully placed", () => {
+  it("marks the selected index as used after placement", () => {
     const game = makeGame();
     game.startPlanning();
-    const before = game.snapshot.queueIndex;
-    game.placeAt(4); // 중앙 컬럼
-    // Either advanced (if placed), or stayed (if blocked) — at least one should advance somewhere
-    expect(game.snapshot.queueIndex).toBeGreaterThanOrEqual(before);
+    const initialIdx = game.snapshot.selectedIndex;
+    game.placeAt(4);
+    if (game.snapshot.usedIndices.length > 0) {
+      expect(game.snapshot.usedIndices).toContain(initialIdx);
+    }
+  });
+
+  it("auto-advances selectedIndex to next unused after placement", () => {
+    const game = makeGame();
+    game.startPlanning();
+    const initialIdx = game.snapshot.selectedIndex;
+    game.placeAt(4);
+    if (game.snapshot.usedIndices.length > 0 && game.snapshot.mode === "planning") {
+      expect(game.snapshot.selectedIndex).not.toBe(initialIdx);
+      expect(game.snapshot.usedIndices).not.toContain(game.snapshot.selectedIndex);
+    }
   });
 
   it("resets currentRotation to 0 after a placement", () => {
@@ -140,16 +193,15 @@ describe("Game.rotatePlanningPiece", () => {
 describe("Game.undoLastPlacement", () => {
   beforeEach(() => localStorage.clear());
 
-  it("reverts queueIndex and grid after a placement", () => {
+  it("reverts usedIndices and grid after a placement", () => {
     const game = makeGame();
     game.startPlanning();
-    const initialIndex = game.snapshot.queueIndex;
+    const initialUsed = [...game.snapshot.usedIndices];
     const initialGrid = game.snapshot.grid.map((row) => [...row]);
     game.placeAt(4);
-    if (game.snapshot.queueIndex > initialIndex) {
+    if (game.snapshot.usedIndices.length > initialUsed.length) {
       game.undoLastPlacement();
-      expect(game.snapshot.queueIndex).toBe(initialIndex);
-      // Grid should match initial state
+      expect(game.snapshot.usedIndices).toEqual(initialUsed);
       expect(JSON.stringify(game.snapshot.grid)).toBe(JSON.stringify(initialGrid));
     }
   });
@@ -157,9 +209,9 @@ describe("Game.undoLastPlacement", () => {
   it("is a no-op when there is no history", () => {
     const game = makeGame();
     game.startPlanning();
-    const before = game.snapshot.queueIndex;
+    const before = game.snapshot.usedIndices.length;
     game.undoLastPlacement();
-    expect(game.snapshot.queueIndex).toBe(before);
+    expect(game.snapshot.usedIndices.length).toBe(before);
   });
 });
 
@@ -169,14 +221,11 @@ describe("Game evaluate (planning end)", () => {
   it("transitions to 'failed' when queue exhausted but board not empty", () => {
     const game = makeGame();
     game.startPlanning();
-    // 모든 큐 피스를 한 컬럼(0)에만 떨어뜨림 — 거의 항상 클리어 실패
     const queueLen = game.snapshot.puzzle.queue.length;
     for (let i = 0; i < queueLen; i += 1) {
       game.placeAt(0);
     }
-    // queueIndex가 끝까지 가지 않을 수도 있음 (canPlace 실패 시)
-    // 하지만 evaluate가 호출됐다면 mode는 clear/failed 중 하나
-    if (game.snapshot.queueIndex >= queueLen) {
+    if (game.snapshot.usedIndices.length >= queueLen) {
       expect(["clear", "failed"]).toContain(game.snapshot.mode);
       expect(game.snapshot.attempts).toBeGreaterThanOrEqual(1);
     }

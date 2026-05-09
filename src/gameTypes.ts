@@ -63,8 +63,10 @@ export interface GameSnapshot {
   soundOn: boolean;
   animation: AnimationState;
   // Planning 모드 전용
-  queueIndex: number;        // 다음 배치할 큐 위치 (0-indexed)
+  queueIndex: number;        // 사용된 피스 수 (= usedIndices.length, 호환성용)
   attempts: number;          // 현재 퍼즐 시도 횟수 (실패 누적)
   currentRotation: number;   // 다음 배치할 피스의 회전 상태 (0~3)
   planningGhost: { cells: Point[]; kind: PieceKind } | null;  // 마우스 호버 위치의 미리보기 셀들
+  selectedIndex: number;     // 현재 선택된 큐 인덱스 (사용자가 다음에 둘 피스)
+  usedIndices: number[];     // 이미 사용된 큐 인덱스 (정렬되지 않을 수 있음)
 }

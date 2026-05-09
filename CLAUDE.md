@@ -102,12 +102,22 @@ Vitest + happy-dom 기반. 순수 로직만 자동 테스트 (Canvas 렌더러�
 
 ### 코드 흐름
 - `Game.startPlanning()` — feed → planning 진입, 보드 리셋
-- `Game.placeAt(col)` — 현재 큐 피스를 col에 떨어뜨림 (중력 시뮬), 큐 인덱스 +1
-- `Game.rotatePlanningPiece()` — 다음 피스의 회전 0~3 사이 토글
+- `Game.selectPiece(i)` — 핸드의 i번째 피스 선택 (사용된 건 무시)
+- `Game.placeAt(col)` — 현재 선택 피스를 col에 떨어뜨림. usedIndices에 인덱스 추가, advanceSelection
+- `Game.rotatePlanningPiece()` — 선택된 피스 회전 0~3 토글
 - `Game.undoLastPlacement()` — 마지막 배치 무르기 (스냅샷 기반)
-- 큐 끝에 도달 → `evaluate()` 자동 호출 → mode = `clear` 또는 `failed`
+- `Game.setHoverColumn(col | null)` — 호버 미리보기용
+- 큐 모두 사용 시 → `evaluate()` 자동 호출 → mode = `clear` 또는 `failed`
 - `Game.retry()` — failed에서 같은 퍼즐 재시도 (attempts 누적)
 - `Game.advance()` — clear에서 다음 퍼즐로
+
+### 핸드 UI (5+ 카드)
+- 화면 상단 (라벨 아래, 보드 위) 에 큐 전체를 카드 형태로 표시
+- 선택된 카드: `--gb-accent` 굵은 외곽선
+- 사용된 카드: 반투명 + 대각선
+- 클릭: 선택 변경 (사용 안 한 것만)
+- 기본은 자동 진행 (배치 후 `advanceSelection`이 다음 미사용으로 이동)
+- 사용자가 다른 순서로 풀고 싶으면 카드 클릭으로 override 가능
 
 ### 상태 머신
 ```

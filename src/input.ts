@@ -59,16 +59,22 @@ export class InputController {
     const isTap = Math.abs(dx) < 24 && Math.abs(dy) < 24 && elapsed < 320;
 
     if (mode === "planning") {
-      // Planning: 탭 = 그 컬럼에 현재 큐 피스 배치
+      // Planning: 탭 = 핸드 카드(피스 선택) 또는 보드 컬럼(배치)
       // 위로 스와이프 = 포기, 아래로 스와이프 = 마지막 placement undo
       if (vertical && dy < -52) {
         this.game.abandon();
       } else if (vertical && dy > 52) {
         this.game.undoLastPlacement();
       } else if (isTap) {
-        const col = this.renderer.screenToColumn(event.clientX, event.clientY);
-        if (col !== null) {
-          this.game.placeAt(col);
+        // 핸드 우선 검사
+        const handIdx = this.renderer.screenToHandIndex(event.clientX, event.clientY);
+        if (handIdx !== null) {
+          this.game.selectPiece(handIdx);
+        } else {
+          const col = this.renderer.screenToColumn(event.clientX, event.clientY);
+          if (col !== null) {
+            this.game.placeAt(col);
+          }
         }
       }
     } else if (horizontal && dx < -70) {

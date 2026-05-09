@@ -6,7 +6,8 @@ import { SoundSystem } from "./sound";
 
 interface PlacementSnapshot {
   grid: Cell[][];
-  queueIndex: number;
+  selectedIndex: number;
+  usedIndices: number[];
   rotation: number;
 }
 
@@ -15,7 +16,8 @@ export class Game {
   private feed: FeedItem[];
   private feedIndex = 0;
   private grid: Cell[][];
-  private queueIndex = 0;
+  private selectedIndex = 0;
+  private usedIndices: number[] = [];
   private currentRotation = 0;
   private attempts = 0;
   private placementHistory: PlacementSnapshot[] = [];
@@ -54,17 +56,19 @@ export class Game {
       puzzle: this.activePuzzle,
       grid: this.grid,
       current: null,
-      next: this.mode === "planning" ? this.peekQueue() : this.activePuzzle.queue[0] ?? null,
-      blocksLeft: this.activePuzzle.queue.length - this.queueIndex,
+      next: this.mode === "planning" ? this.getSelectedKind() : this.activePuzzle.queue[0] ?? null,
+      blocksLeft: this.activePuzzle.queue.length - this.usedIndices.length,
       linesCleared: 0,
       feed: this.feed,
       feedIndex: this.feedIndex,
       soundOn: this.sound.isEnabled,
       animation: this.animation,
-      queueIndex: this.queueIndex,
+      queueIndex: this.usedIndices.length,
       attempts: this.attempts,
       currentRotation: this.currentRotation,
       planningGhost: this.computeGhost(),
+      selectedIndex: this.selectedIndex,
+      usedIndices: [...this.usedIndices],
     };
   }
 
@@ -76,10 +80,10 @@ export class Game {
     this.hoverColumn = col;
   }
 
-  /** hoverColumn에 현재 큐 피스를 떨어뜨렸을 때 안착 셀들. 없으면 null. */
+  /** hoverColumn에 현재 선택 피스를 떨어뜨렸을 때 안착 셀들. 없으면 null. */
   private computeGhost(): { cells: Point[]; kind: "I" | "O" | "T" | "L" | "J" | "S" | "Z" } | null {
     if (this.mode !== "planning" || this.hoverColumn === null) return null;
-    const kind = this.peekQueue();
+    const kind = this.getSelectedKind();
     if (!kind) return null;
     let piece = createPiece(kind);
     for (let i = 0; i < this.currentRotation; i += 1) {
@@ -107,7 +111,8 @@ export class Game {
     if (this.mode === "planning") return;
     this.mode = "planning";
     this.grid = cloneGrid(this.activePuzzle.grid);
-    this.queueIndex = 0;
+    this.usedIndices = [];
+    this.selectedIndex = 0;
     this.currentRotation = 0;
     this.attempts = 0;
     this.placementHistory = [];
@@ -115,23 +120,47 @@ export class Game {
     this.sound.unlock();
   }
 
-  /** 현재 큐에서 다음에 배치할 피스 (planning 모드 한정) */
-  private peekQueue(): "I" | "O" | "T" | "L" | "J" | "S" | "Z" | null {
-    if (this.queueIndex >= this.activePuzzle.queue.length) return null;
-    return this.activePuzzle.queue[this.queueIndex];
+  /** 현재 선택된 피스의 종류 (planning 모드 한정) */
+  private getSelectedKind(): "I" | "O" | "T" | "L" | "J" | "S" | "Z" | null {
+    if (this.selectedIndex < 0 || this.selectedIndex >= this.activePuzzle.queue.length) return null;
+    if (this.usedIndices.includes(this.selectedIndex)) return null;
+    return this.activePuzzle.queue[this.selectedIndex];
+  }
+
+  /** 큐의 i번째 피스 선택 (사용된 피스는 선택 불가) */
+  selectPiece(index: number): void {
+    if (this.mode !== "planning") return;
+    if (index < 0 || index >= this.activePuzzle.queue.length) return;
+    if (this.usedIndices.includes(index)) return;
+    this.selectedIndex = index;
+    this.currentRotation = 0;
+    this.sound.play("move");
   }
 
   rotatePlanningPiece(): void {
     if (this.mode !== "planning") return;
-    if (this.queueIndex >= this.activePuzzle.queue.length) return;
+    if (!this.getSelectedKind()) return;
     this.currentRotation = (this.currentRotation + 1) % 4;
     this.sound.play("rotate");
   }
 
-  /** 클릭한 컬럼에 현재 큐 피스를 떨어뜨려 배치 */
+  /** 사용 안 한 다음 인덱스로 selectedIndex 이동 (placement 후 자동 호출) */
+  private advanceSelection(): void {
+    const total = this.activePuzzle.queue.length;
+    for (let offset = 1; offset <= total; offset += 1) {
+      const candidate = (this.selectedIndex + offset) % total;
+      if (!this.usedIndices.includes(candidate)) {
+        this.selectedIndex = candidate;
+        return;
+      }
+    }
+    // 다 사용됨 — selectedIndex 그대로 (의미 없음, evaluate가 곧 호출됨)
+  }
+
+  /** 클릭한 컬럼에 현재 선택 피스를 떨어뜨려 배치 */
   placeAt(targetX: number): void {
     if (this.mode !== "planning") return;
-    const kind = this.peekQueue();
+    const kind = this.getSelectedKind();
     if (!kind) return;
 
     let piece = createPiece(kind);
@@ -153,7 +182,8 @@ export class Game {
     // undo 용 스냅샷
     this.placementHistory.push({
       grid: cloneGrid(this.grid),
-      queueIndex: this.queueIndex,
+      selectedIndex: this.selectedIndex,
+      usedIndices: [...this.usedIndices],
       rotation: this.currentRotation,
     });
 
@@ -172,11 +202,13 @@ export class Game {
     // 라인 클리어
     this.clearLines(performance.now());
 
-    this.queueIndex += 1;
+    this.usedIndices.push(this.selectedIndex);
     this.currentRotation = 0;
 
-    if (this.queueIndex >= this.activePuzzle.queue.length) {
+    if (this.usedIndices.length >= this.activePuzzle.queue.length) {
       this.evaluate();
+    } else {
+      this.advanceSelection();
     }
   }
 
@@ -185,7 +217,8 @@ export class Game {
     const prev = this.placementHistory.pop();
     if (!prev) return;
     this.grid = prev.grid;
-    this.queueIndex = prev.queueIndex;
+    this.selectedIndex = prev.selectedIndex;
+    this.usedIndices = prev.usedIndices;
     this.currentRotation = prev.rotation;
     this.sound.play("move");
   }
@@ -217,7 +250,8 @@ export class Game {
       this.attempts = 0;
     }
     this.grid = cloneGrid(this.activePuzzle.grid);
-    this.queueIndex = 0;
+    this.usedIndices = [];
+    this.selectedIndex = 0;
     this.currentRotation = 0;
     this.placementHistory = [];
     this.mode = "planning";
@@ -241,7 +275,8 @@ export class Game {
     this.mode = "feed";
     this.attempts = 0;
     this.grid = cloneGrid(this.activePuzzle.grid);
-    this.queueIndex = 0;
+    this.usedIndices = [];
+    this.selectedIndex = 0;
     this.currentRotation = 0;
     this.placementHistory = [];
   }
