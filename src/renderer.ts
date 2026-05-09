@@ -1,6 +1,6 @@
 import { COLS, ROWS, type Cell, type GameSnapshot, type PieceKind, type Puzzle } from "./gameTypes";
 
-export type PlanningControl = "left" | "right" | "rotate" | "slide" | "lock";
+export type PlanningControl = "left" | "right" | "rotate" | "down";
 import { absoluteCells, createPiece, rotatePiece } from "./pieces";
 import { PIECE_COLORS, TOKENS, clearColorCache, resolveCssVar } from "./colors";
 
@@ -118,16 +118,19 @@ export class Renderer {
     this.background();
     this.renderTop(snapshot);
     let board = this.boardRect();
-    // Planning 모드: 미션 + 큐 카드 + 컨트롤 버튼 공간 확보
+    // Planning 모드 레이아웃 (위에서 아래로):
+    //   header → mission → 큐 카드 → 보드 → rotate 버튼 → ◀▼▶ 버튼
     if (snapshot.mode === "planning") {
-      const missionTop = 18;
-      const queueAreaHeight = 64;
-      const controlsHeight = 60; // 5-button D-pad
+      const missionGap = 18;
+      const queueAreaHeight = 64;     // 큐 카드 영역 (보드 위에 위치)
+      const controlsHeight = 130;     // rotate 행 + 3-button 행 + 마진
+      const newBoardTop = board.y + missionGap + queueAreaHeight;
+      const newBoardEnd = board.y + board.height - controlsHeight;
       board = new DOMRect(
         board.x,
-        board.y + missionTop,
+        newBoardTop,
         board.width,
-        Math.max(80, board.height - queueAreaHeight - missionTop - controlsHeight),
+        Math.max(80, newBoardEnd - newBoardTop),
       );
     }
     if (snapshot.mode === "feed") {
@@ -138,8 +141,10 @@ export class Renderer {
       this.renderBoard(snapshot, board, now, true);
     }
     if (snapshot.mode === "planning") {
-      this.renderQueueCards(snapshot, board.y + board.height + 10);
-      this.renderControlButtons(snapshot, board.y + board.height + 10 + 56);
+      // 큐 카드: 보드 ABOVE (사용자 mockup에 맞춤)
+      this.renderQueueCards(snapshot, board.y - 56);
+      // 버튼: 보드 BELOW
+      this.renderControlButtons(snapshot, board.y + board.height + 10);
     } else {
       this.controlButtons = [];
     }
@@ -218,44 +223,65 @@ export class Renderer {
     }
   }
 
-  /** Planning 모드 컨트롤 버튼 — D-pad 스타일 5개 (◀ ↻ ▶ ↓ ⏎) */
-  private renderControlButtons(_snapshot: GameSnapshot, y: number): void {
+  /** Planning 모드 컨트롤 버튼 — D-pad: rotate 단독 행 + ◀▼▶ 행
+   *  ▼ 버튼은 피스 상태에 따라 색상 변화 (공중=회색 슬라이드 / 바닥=초록 잠금)
+   */
+  private renderControlButtons(snapshot: GameSnapshot, y: number): void {
     this.controlButtons = [];
     const screen = this.screenRect();
-    type Button = { action: PlanningControl; icon: string; emphasize: boolean };
-    const buttons: Button[] = [
-      { action: "left", icon: "◀", emphasize: false },
-      { action: "rotate", icon: "↻", emphasize: false },
-      { action: "right", icon: "▶", emphasize: false },
-      { action: "slide", icon: "▼", emphasize: false },
-      { action: "lock", icon: "⏎", emphasize: true },
-    ];
-    const gap = 6;
+    const gap = 8;
     const usableW = screen.width - 24;
-    const computed = Math.floor((usableW - (buttons.length - 1) * gap) / buttons.length);
-    const boxSize = Math.max(40, Math.min(56, computed));
-    const totalW = buttons.length * boxSize + (buttons.length - 1) * gap;
-    const startX = screen.x + (screen.width - totalW) / 2;
+    // 3-button 행 기준으로 사이즈 계산 (rotate는 같은 사이즈로)
+    const computed = Math.floor((usableW - 2 * gap) / 3);
+    const boxSize = Math.max(44, Math.min(60, computed));
 
-    for (let i = 0; i < buttons.length; i += 1) {
-      const b = buttons[i];
-      const bx = startX + i * (boxSize + gap);
-      this.controlButtons.push({ x: bx, y, w: boxSize, h: boxSize, action: b.action });
+    // ── 1행: rotate 단독, 가운데 정렬
+    const rotateX = screen.x + (screen.width - boxSize) / 2;
+    const rotateY = y;
+    this.controlButtons.push({ x: rotateX, y: rotateY, w: boxSize, h: boxSize, action: "rotate" });
+    this.drawControlButton(rotateX, rotateY, boxSize, "↻", false);
 
-      // 배경 (LOCK 버튼은 강조 색)
-      this.ctx.fillStyle = resolveCssVar(b.emphasize ? TOKENS.success : TOKENS.bgPanel);
-      this.ctx.fillRect(bx, y, boxSize, boxSize);
-      this.pixelStroke(bx, y, boxSize, boxSize, 2, resolveCssVar(TOKENS.ink));
-
-      // 아이콘
-      this.ctx.font = `bold 22px sans-serif`;
-      this.ctx.textAlign = "center";
-      this.ctx.textBaseline = "middle";
-      this.ctx.fillStyle = resolveCssVar(b.emphasize ? TOKENS.bgPanel : TOKENS.ink);
-      this.ctx.fillText(b.icon, bx + boxSize / 2, y + boxSize / 2 + 1);
-      this.ctx.textAlign = "left";
-      this.ctx.textBaseline = "alphabetic";
+    // ── 2행: ◀ ▼ ▶
+    const row2Y = rotateY + boxSize + 6;
+    const totalW3 = 3 * boxSize + 2 * gap;
+    const row2StartX = screen.x + (screen.width - totalW3) / 2;
+    const downReadyToLock = !!snapshot.current && /^playing$|^planning$/.test(snapshot.mode) && this.isPieceOnFloor(snapshot);
+    const layout: Array<{ action: PlanningControl; icon: string; emphasize: boolean }> = [
+      { action: "left", icon: "◀", emphasize: false },
+      { action: "down", icon: downReadyToLock ? "⏎" : "▼", emphasize: downReadyToLock },
+      { action: "right", icon: "▶", emphasize: false },
+    ];
+    for (let i = 0; i < layout.length; i += 1) {
+      const b = layout[i];
+      const bx = row2StartX + i * (boxSize + gap);
+      this.controlButtons.push({ x: bx, y: row2Y, w: boxSize, h: boxSize, action: b.action });
+      this.drawControlButton(bx, row2Y, boxSize, b.icon, b.emphasize);
     }
+  }
+
+  private drawControlButton(x: number, y: number, size: number, icon: string, emphasize: boolean): void {
+    this.ctx.fillStyle = resolveCssVar(emphasize ? TOKENS.success : TOKENS.bgPanel);
+    this.ctx.fillRect(x, y, size, size);
+    this.pixelStroke(x, y, size, size, 2, resolveCssVar(TOKENS.ink));
+    this.ctx.font = `bold 22px sans-serif`;
+    this.ctx.textAlign = "center";
+    this.ctx.textBaseline = "middle";
+    this.ctx.fillStyle = resolveCssVar(emphasize ? TOKENS.bgPanel : TOKENS.ink);
+    this.ctx.fillText(icon, x + size / 2, y + size / 2 + 1);
+    this.ctx.textAlign = "left";
+    this.ctx.textBaseline = "alphabetic";
+  }
+
+  /** 현재 피스가 바닥/스택 위에 있는지 — ▼ 버튼이 잠금 모드여야 할 때 */
+  private isPieceOnFloor(snapshot: GameSnapshot): boolean {
+    if (!snapshot.current) return false;
+    const piece = snapshot.current;
+    const cells = absoluteCells({ ...piece, y: piece.y + 1 });
+    for (const c of cells) {
+      if (c.x < 0 || c.x >= COLS || c.y >= ROWS) return true;
+      if (c.y >= 0 && snapshot.grid[c.y][c.x] !== null) return true;
+    }
+    return false;
   }
 
   private renderEditor(snapshot: GameSnapshot, board: DOMRect): void {

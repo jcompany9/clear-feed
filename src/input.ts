@@ -103,8 +103,7 @@ export class InputController {
             case "left": this.game.moveCurrent(-1); break;
             case "right": this.game.moveCurrent(1); break;
             case "rotate": this.game.rotateCurrent(); break;
-            case "slide": this.game.slideToFloor(); break;
-            case "lock": this.game.dropCurrent(); break;
+            case "down": this.game.dropOrLock(); break;
           }
           this.game.setTouchTrail([]);
           this.touch = null;

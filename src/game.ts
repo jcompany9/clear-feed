@@ -272,6 +272,26 @@ export class Game {
     }
   }
 
+  /**
+   * 똑똑한 ▼ 버튼: 공중에 떠 있으면 슬라이드, 바닥/스택 위에 있으면 잠금.
+   * 첫 탭에 슬라이드 → 사용자가 좌/우/회전으로 미세조정 → 두 번째 탭에 잠금.
+   */
+  dropOrLock(): void {
+    if (this.mode !== "planning" || !this.currentPiece) return;
+    const canFall = this.canPlace({ ...this.currentPiece, y: this.currentPiece.y + 1 });
+    if (canFall) {
+      this.slideToFloor();
+    } else {
+      this.dropCurrent();
+    }
+  }
+
+  /** 현재 피스가 바닥/스택 위에 있는지 (더 떨어질 곳이 없는지) — UI에서 잠금 가능 표시용 */
+  get isPieceOnFloor(): boolean {
+    if (!this.currentPiece) return false;
+    return !this.canPlace({ ...this.currentPiece, y: this.currentPiece.y + 1 });
+  }
+
   /** 현재 피스를 바닥까지 떨어뜨려 잠금 (하드 드롭) */
   dropCurrent(): void {
     if (this.mode !== "planning" || !this.currentPiece) return;
