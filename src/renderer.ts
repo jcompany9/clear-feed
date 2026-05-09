@@ -104,10 +104,16 @@ export class Renderer {
     this.background();
     this.renderTop(snapshot);
     let board = this.boardRect();
-    // Planning 모드: 큐 카드 영역만큼 보드 축소
+    // Planning 모드: 미션 텍스트 + 큐 카드 공간 확보
     if (snapshot.mode === "planning") {
+      const missionTop = 18;     // 미션 텍스트 위 여백
       const queueAreaHeight = 64; // 카드 영역 높이
-      board = new DOMRect(board.x, board.y, board.width, Math.max(80, board.height - queueAreaHeight));
+      board = new DOMRect(
+        board.x,
+        board.y + missionTop,
+        board.width,
+        Math.max(80, board.height - queueAreaHeight - missionTop),
+      );
     }
     if (snapshot.mode === "feed") {
       this.renderFeed(snapshot, board, now);
