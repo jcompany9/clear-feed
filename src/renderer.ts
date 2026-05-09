@@ -1,6 +1,6 @@
 import { COLS, ROWS, type Cell, type GameSnapshot, type PieceKind, type Puzzle } from "./gameTypes";
 
-export type PlanningControl = "left" | "right" | "rotate" | "down";
+export type PlanningControl = "left" | "right" | "rotate" | "down" | "hardDrop";
 import { absoluteCells, createPiece, rotatePiece } from "./pieces";
 import { PIECE_COLORS, TOKENS, clearColorCache, resolveCssVar } from "./colors";
 
@@ -222,42 +222,50 @@ export class Renderer {
     }
   }
 
-  /** Planning 모드 컨트롤 버튼 — Layout B: 4-button 단일 행 (◀ ↻ ▼ ▶)
-   *  ▼ 버튼은 피스 상태에 따라 변화 (공중=▼ 회색 1칸 내림 / 바닥=⏎ 초록 잠금)
+  /** Planning 모드 컨트롤 버튼 — Layout B: 5-button 단일 행 (◀ ↻ ▶ ▼ ⏬)
+   *  ◀ ↻ ▶ : 위치/회전 (D-pad)
+   *  ▼     : 슬로우 드롭 (1칸 / 바닥에서 잠금) — 색상 변화
+   *  ⏬     : 빠른 드롭 (즉시 바닥 + 잠금) — 빨간 강조
    */
   private renderControlButtons(snapshot: GameSnapshot, y: number): void {
     this.controlButtons = [];
     const screen = this.screenRect();
-    const gap = 8;
+    const gap = 6;
     const usableW = screen.width - 24;
-    const computed = Math.floor((usableW - 3 * gap) / 4);
-    const boxSize = Math.max(44, Math.min(60, computed));
-    const totalW = 4 * boxSize + 3 * gap;
+    const computed = Math.floor((usableW - 4 * gap) / 5);
+    const boxSize = Math.max(40, Math.min(60, computed));
+    const totalW = 5 * boxSize + 4 * gap;
     const startX = screen.x + (screen.width - totalW) / 2;
 
     const downReadyToLock = !!snapshot.current && this.isPieceOnFloor(snapshot);
-    const layout: Array<{ action: PlanningControl; icon: string; emphasize: boolean }> = [
-      { action: "left", icon: "◀", emphasize: false },
-      { action: "rotate", icon: "↻", emphasize: false },
-      { action: "down", icon: downReadyToLock ? "⏎" : "▼", emphasize: downReadyToLock },
-      { action: "right", icon: "▶", emphasize: false },
+    const layout: Array<{ action: PlanningControl; icon: string; bgToken: string; fgToken: string }> = [
+      { action: "left",     icon: "◀", bgToken: TOKENS.bgPanel, fgToken: TOKENS.ink },
+      { action: "rotate",   icon: "↻", bgToken: TOKENS.bgPanel, fgToken: TOKENS.ink },
+      { action: "right",    icon: "▶", bgToken: TOKENS.bgPanel, fgToken: TOKENS.ink },
+      {
+        action: "down",
+        icon: downReadyToLock ? "⏎" : "▼",
+        bgToken: downReadyToLock ? TOKENS.success : TOKENS.bgPanel,
+        fgToken: downReadyToLock ? TOKENS.bgPanel : TOKENS.ink,
+      },
+      { action: "hardDrop", icon: "⏬", bgToken: TOKENS.accent, fgToken: TOKENS.bgPanel },
     ];
     for (let i = 0; i < layout.length; i += 1) {
       const b = layout[i];
       const bx = startX + i * (boxSize + gap);
       this.controlButtons.push({ x: bx, y, w: boxSize, h: boxSize, action: b.action });
-      this.drawControlButton(bx, y, boxSize, b.icon, b.emphasize);
+      this.drawControlButtonStyled(bx, y, boxSize, b.icon, b.bgToken, b.fgToken);
     }
   }
 
-  private drawControlButton(x: number, y: number, size: number, icon: string, emphasize: boolean): void {
-    this.ctx.fillStyle = resolveCssVar(emphasize ? TOKENS.success : TOKENS.bgPanel);
+  private drawControlButtonStyled(x: number, y: number, size: number, icon: string, bgToken: string, fgToken: string): void {
+    this.ctx.fillStyle = resolveCssVar(bgToken);
     this.ctx.fillRect(x, y, size, size);
     this.pixelStroke(x, y, size, size, 2, resolveCssVar(TOKENS.ink));
     this.ctx.font = `bold 22px sans-serif`;
     this.ctx.textAlign = "center";
     this.ctx.textBaseline = "middle";
-    this.ctx.fillStyle = resolveCssVar(emphasize ? TOKENS.bgPanel : TOKENS.ink);
+    this.ctx.fillStyle = resolveCssVar(fgToken);
     this.ctx.fillText(icon, x + size / 2, y + size / 2 + 1);
     this.ctx.textAlign = "left";
     this.ctx.textBaseline = "alphabetic";

@@ -14,8 +14,6 @@ interface TouchState {
 
 export class InputController {
   private touch: TouchState | null = null;
-  private lastDownTapAt = 0;
-  private static DOUBLE_TAP_MS = 350;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -105,18 +103,8 @@ export class InputController {
             case "left": this.game.moveCurrent(-1); break;
             case "right": this.game.moveCurrent(1); break;
             case "rotate": this.game.rotateCurrent(); break;
-            case "down": {
-              // 더블탭 = 즉시 잠금 (hard drop). 단일 탭 = 1칸 또는 잠금(바닥일 때)
-              const now = performance.now();
-              const isDouble = now - this.lastDownTapAt < InputController.DOUBLE_TAP_MS;
-              this.lastDownTapAt = now;
-              if (isDouble) {
-                this.game.dropCurrent();
-              } else {
-                this.game.dropOrLock();
-              }
-              break;
-            }
+            case "down": this.game.dropOrLock(); break;       // 1칸 / 바닥에서 잠금
+            case "hardDrop": this.game.dropCurrent(); break;  // 즉시 바닥 + 잠금
           }
           this.game.setTouchTrail([]);
           this.touch = null;
