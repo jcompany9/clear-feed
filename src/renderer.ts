@@ -518,12 +518,28 @@ export class Renderer {
     this.ctx.lineWidth = 1;
     this.line(screen.x + 12, top + 44, screen.x + screen.width - 12, top + 44);
 
-    // 미션 라벨 (구분선 아래, 작게)
+    // 미션 라벨 (퍼즐별 구체 수치)
     this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
     this.ctx.textAlign = "center";
     this.ctx.fillStyle = resolveCssVar(TOKENS.accent);
-    this.ctx.fillText("▶ PERFECT CLEAR — EMPTY THE BOARD", screen.x + screen.width / 2, top + 56);
+    this.ctx.fillText(this.computeMissionText(snapshot), screen.x + screen.width / 2, top + 56);
     this.ctx.textAlign = "left";
+  }
+
+  /** 퍼즐별 미션 문구: "N PIECES → CLEAR M LINES" — 수학적으로 안 떨어지면 폴백 */
+  private computeMissionText(snapshot: GameSnapshot): string {
+    const initialCells = snapshot.puzzle.grid.flat().filter((c) => c !== null && c !== "wall").length;
+    const queueLen = snapshot.puzzle.queue.length;
+    const totalCells = initialCells + queueLen * 4;
+    if (totalCells % 10 === 0 && queueLen > 0) {
+      const lines = totalCells / 10;
+      const lineLabel = lines === 1 ? "LINE" : "LINES";
+      const pieceLabel = queueLen === 1 ? "PIECE" : "PIECES";
+      // TETRIS = 4-line clear (특별 라벨)
+      if (lines === 4) return `▶ ${queueLen} ${pieceLabel} → TETRIS! 4 LINES`;
+      return `▶ ${queueLen} ${pieceLabel} → CLEAR ${lines} ${lineLabel}`;
+    }
+    return `▶ ${queueLen} PIECES → EMPTY THE BOARD`;
   }
 
   private renderFeed(snapshot: GameSnapshot, board: DOMRect, now: number): void {
