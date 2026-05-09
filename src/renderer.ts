@@ -320,13 +320,18 @@ export class Renderer {
       this.ctx.fillText(`${cellsFilled} CELLS`, screen.x + 14, top + 26);
 
       this.ctx.textAlign = "right";
-      const statusColor =
+      // 큐 길이 색상: 수학적으로 가능하면 ink, 불가능하면 warning
+      const feasible = snapshot.editFeasibleLengths;
+      const queueOk = cellsFilled === 0 || feasible.includes(snapshot.editQueueLength);
+      const queueColor =
         snapshot.editStatus === "ready"
           ? resolveCssVar(TOKENS.success)
-          : snapshot.editStatus === "no-solution"
-            ? resolveCssVar(TOKENS.danger)
-            : resolveCssVar(TOKENS.ink);
-      this.ctx.fillStyle = statusColor;
+          : !queueOk
+            ? resolveCssVar(TOKENS.warning)
+            : snapshot.editStatus === "no-solution"
+              ? resolveCssVar(TOKENS.danger)
+              : resolveCssVar(TOKENS.ink);
+      this.ctx.fillStyle = queueColor;
       this.ctx.fillText(this.padNumber(snapshot.editQueueLength, 2), screen.x + screen.width - 14, top + 26);
       this.ctx.textAlign = "left";
 
@@ -569,6 +574,9 @@ export class Renderer {
       // 상태 라벨 (배너)
       let statusLine = "TAP CELL TO TOGGLE";
       let statusColor: string = TOKENS.inkSoft;
+      const feasible = snapshot.editFeasibleLengths;
+      const queueOk = !hasBlocks || feasible.includes(snapshot.editQueueLength);
+
       if (!hasBlocks) {
         statusLine = "EMPTY BOARD — PLACE BLOCKS";
         statusColor = TOKENS.inkMute;
@@ -578,6 +586,14 @@ export class Renderer {
       } else if (snapshot.editStatus === "ready") {
         statusLine = `READY — ${snapshot.editFoundQueue?.join(" ")}`;
         statusColor = TOKENS.success;
+      } else if (!queueOk) {
+        // 수학적으로 불가능 — 친절한 안내
+        if (feasible.length === 0) {
+          statusLine = "ODD CELL COUNT — ADD/REMOVE 1";
+        } else {
+          statusLine = `Q=${snapshot.editQueueLength} WON'T FIT — TRY ${feasible.slice(0, 3).join("/")}`;
+        }
+        statusColor = TOKENS.warning;
       } else if (snapshot.editStatus === "no-solution") {
         statusLine = "NO SOLUTION — EDIT BOARD";
         statusColor = TOKENS.danger;

@@ -474,6 +474,42 @@ describe("Editor — setEditQueueLength", () => {
 describe("Editor — generateEditedPuzzle", () => {
   beforeEach(() => localStorage.clear());
 
+  it("rejects mathematically infeasible queue length with 'TRY Q=' toast", () => {
+    const game = makeGame();
+    game.enterEditor();
+    // 16 cells (4 tetrominoes), queue=5 → 16+20=36, not divisible by 10
+    game.setEditTool("I");
+    game.editPlaceAt(2, 14);
+    game.setEditTool("O");
+    game.editPlaceAt(6, 13);
+    game.setEditTool("T");
+    game.editPlaceAt(2, 16);
+    game.setEditTool("J");
+    game.editPlaceAt(6, 16);
+    expect(game.snapshot.editGrid.flat().filter((c) => c !== null).length).toBe(16);
+    expect(game.snapshot.editQueueLength).toBe(5);
+    game.generateEditedPuzzle();
+    expect(game.snapshot.editStatus).toBe("no-solution");
+    // toast should suggest valid queue lengths
+    expect(game.snapshot.animation.toast).toMatch(/TRY Q=/);
+  });
+
+  it("editFeasibleLengths reflects (cellCount + 4*q) % 10 === 0", () => {
+    const game = makeGame();
+    game.enterEditor();
+    expect(game.snapshot.editFeasibleLengths).toEqual([]); // empty board
+    // 16 cells: valid q in 1..10 = {1, 6}
+    game.setEditTool("I");
+    game.editPlaceAt(2, 14);
+    game.setEditTool("O");
+    game.editPlaceAt(6, 13);
+    game.setEditTool("T");
+    game.editPlaceAt(2, 16);
+    game.setEditTool("J");
+    game.editPlaceAt(6, 16);
+    expect(game.snapshot.editFeasibleLengths).toEqual([1, 6]);
+  });
+
   it("rejects empty board with 'PLACE BLOCKS FIRST' toast (status stays idle)", () => {
     const game = makeGame();
     game.enterEditor();

@@ -116,7 +116,28 @@ export class Game {
       editStatus: this.editStatus,
       editTool: this.editTool,
       editToolRotation: this.editToolRotation,
+      editFeasibleLengths: this.computeFeasibleLengths(),
     };
+  }
+
+  /** 수학적으로 풀이 가능한 큐 길이 (1~10 범위). (cellCount + 4q) % 10 === 0 만족하는 q. */
+  private computeFeasibleLengths(): number[] {
+    if (this.mode !== "editing") return [];
+    const cellCount = this.countEditCells();
+    if (cellCount === 0) return [];
+    const result: number[] = [];
+    for (let q = 1; q <= 10; q += 1) {
+      if ((cellCount + q * 4) % 10 === 0) result.push(q);
+    }
+    return result;
+  }
+
+  private countEditCells(): number {
+    let n = 0;
+    for (const row of this.editGrid) {
+      for (const c of row) if (c !== null) n += 1;
+    }
+    return n;
   }
 
   update(_now: number): void {
@@ -441,11 +462,29 @@ export class Game {
     if (this.editStatus === "generating") return; // 이미 진행 중이면 무시
 
     // 빈 보드 거부 — 풀 게 없음
-    const hasBlocks = this.editGrid.some((row) => row.some((cell) => cell !== null));
-    if (!hasBlocks) {
+    const cellCount = this.countEditCells();
+    if (cellCount === 0) {
       this.editFoundQueue = null;
       this.editStatus = "idle";
       this.flashToast("PLACE BLOCKS FIRST");
+      this.sound.play("fail");
+      return;
+    }
+
+    // 수학적 사전 검증: (cellCount + queue*4)가 10의 배수여야 함 (모든 셀이 라인 클리어로 사라질 수 있음)
+    const total = cellCount + this.editQueueLength * 4;
+    if (total % 10 !== 0) {
+      const valid = this.computeFeasibleLengths();
+      this.editFoundQueue = null;
+      this.editStatus = "no-solution";
+      if (valid.length === 0) {
+        // cellCount가 홀수이거나 너무 큰 경우 — 어떤 q로도 안 됨 (1~10 범위)
+        this.flashToast("ADD/REMOVE 1 CELL");
+      } else if (valid.length === 1) {
+        this.flashToast(`TRY Q=${valid[0]}`);
+      } else {
+        this.flashToast(`TRY Q=${valid.slice(0, 3).join("/")}`);
+      }
       this.sound.play("fail");
       return;
     }
