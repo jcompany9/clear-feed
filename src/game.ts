@@ -14,6 +14,7 @@ import {
 import { absoluteCells, createPiece, rotatePiece } from "./pieces";
 import { createFeedPuzzle, createInitialFeed } from "./puzzleGenerator";
 import { findSolvableQueue } from "./solver";
+import { encodePuzzle } from "./encoding";
 import { loadStorage, rememberPuzzle, setSoundOn } from "./storage";
 import { SoundSystem } from "./sound";
 
@@ -51,12 +52,18 @@ export class Game {
     touchTrail: [],
   };
 
-  constructor(sound: SoundSystem, initialSeed?: number) {
+  constructor(sound: SoundSystem, initialSeed?: number, initialPuzzle?: Puzzle) {
     this.sound = sound;
     const saved = loadStorage();
     this.sound.setEnabled(saved.soundOn);
     const seedBase = initialSeed ?? saved.lastSeed + 17;
-    this.feed = createInitialFeed(6, seedBase).map((puzzle) => ({ puzzle, cleared: false }));
+    if (initialPuzzle) {
+      // ?p=...로 받은 사용자 퍼즐을 첫 슬롯에, 그 뒤로 시드 기반 퍼즐 추가 (피드 다양성)
+      const more = createInitialFeed(5, seedBase).map((puzzle) => ({ puzzle, cleared: false }));
+      this.feed = [{ puzzle: initialPuzzle, cleared: false }, ...more];
+    } else {
+      this.feed = createInitialFeed(6, seedBase).map((puzzle) => ({ puzzle, cleared: false }));
+    }
     this.grid = cloneGrid(this.activePuzzle.grid);
   }
 
@@ -374,7 +381,7 @@ export class Game {
     }
   }
 
-  /** 만든 퍼즐로 플레이 (planning 모드 진입) */
+  /** 만든 퍼즐로 플레이 (planning 모드 진입) — URL도 갱신해서 즉시 공유 가능 */
   playEditedPuzzle(): void {
     if (this.mode !== "editing" || !this.editFoundQueue || this.editStatus !== "ready") return;
     const editedPuzzle: Puzzle = {
@@ -396,6 +403,18 @@ export class Game {
     this.editFoundQueue = null;
     this.editStatus = "idle";
     this.grid = cloneGrid(this.activePuzzle.grid);
+
+    // URL 갱신 — 사용자가 주소창 복사하거나 C 키 눌러 즉시 공유 가능
+    if (typeof window !== "undefined" && window.history?.pushState) {
+      const encoded = encodePuzzle(editedPuzzle.grid, editedPuzzle.queue);
+      const newUrl = `${window.location.pathname}?p=${encoded}`;
+      try {
+        window.history.pushState({}, "", newUrl);
+      } catch {
+        // pushState 실패는 무시 (테스트 환경 등)
+      }
+    }
+
     this.startPlanning();
   }
 
@@ -415,9 +434,13 @@ export class Game {
   }
 
   copyShareUrl(): void {
-    const seed = this.activePuzzle.seed;
+    const puzzle = this.activePuzzle;
     const base = `${window.location.origin}${window.location.pathname}`;
-    const url = `${base}?seed=${seed}`;
+    // seed === 0 = 사용자 만든 퍼즐 (인코딩) / 그 외 = 시드 (짧은 URL)
+    const url =
+      puzzle.seed === 0
+        ? `${base}?p=${encodePuzzle(puzzle.grid, puzzle.queue)}`
+        : `${base}?seed=${puzzle.seed}`;
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(url).then(
         () => this.flashToast("LINK COPIED"),

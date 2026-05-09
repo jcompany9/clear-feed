@@ -159,14 +159,33 @@ UGC 에디터 옵션 A의 핵심: "쌓기만 해, 큐는 알아서 만들어줄�
 - 향후: Web Worker로 비동기화 또는 generating 중 토스트
 - 사용자 보드는 모두 `garbage` 컬러 (피스별 색은 다음 이터레이션)
 
-## URL 공유 (UGC Phase 1)
+## URL 공유 (UGC Phase 1 — 완성)
 
-- `?seed=N` 파라미터로 특정 퍼즐을 첫 피드 위치에 로드
-  (예: `http://localhost:5174/?seed=12345`)
-- 키보드 `C` → 현재 퍼즐의 공유 URL을 클립보드에 복사 + 1.5초 토스트
-- `Game.copyShareUrl()` 사용. clipboard API 실패 시 fallback 토스트
-- 결정론적 시드 기반이라 백엔드 0개로 P2P 공유 가능
-- 추후: 진짜 맵 에디터 (천장/바닥/큐 직접 편집), 닉네임, 일일 챌린지
+두 형식 지원, 자동 감지:
+
+| URL | 의미 |
+|---|---|
+| `?seed=N` | 시드 기반 자동 생성 퍼즐 (짧은 URL, 결정론적 재생성) |
+| `?p=<base64url>` | 사용자가 만든 퍼즐 (보드 + 큐를 통째로 인코딩, ~290자) |
+
+### `src/encoding.ts`
+- `encodePuzzle(grid, queue) → string` — 셀을 한 글자(`.IOTLJSZgw`)로 압축, `:` 구분자, base64url
+- `decodePuzzle(encoded) → { grid, queue } | null` — 잘못된 입력에 null 안전 반환
+- URL-safe 문자만 사용 (A-Z a-z 0-9 - _) — `+`/`/`/`=` 없음
+
+### 흐름
+- 사용자가 에디터에서 FINISH → `playEditedPuzzle`이 `history.pushState`로 URL 갱신
+- 그 상태에서 C 키 또는 주소창 복사 → 친구에게 보냄
+- 친구가 URL 열면 `main.ts`의 `parseUrl`이 `?p=` 디코드 → 같은 퍼즐 즉시 재현
+
+### Game.copyShareUrl() 하이브리드
+- `puzzle.seed === 0` (사용자 생성) → `?p=<encoded>`
+- 그 외 (시드 기반) → `?seed=<N>`
+
+### 키 입력 우선순위
+- `C` 키 — 현재 활성 퍼즐의 공유 URL을 클립보드에 복사 + 토스트
+
+추후: 닉네임 인코딩, 일일 챌린지, 백엔드 라이브러리 (Phase 2+)
 
 ## 게임 모드: Planning ("Tetris Golf") — 순차 계획형 (Plan A)
 

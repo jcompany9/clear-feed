@@ -1,24 +1,49 @@
 import "./style.css";
+import { decodePuzzle } from "./encoding";
 import { Game } from "./game";
 import { InputController } from "./input";
 import { Renderer } from "./renderer";
 import { SoundSystem } from "./sound";
+import type { Puzzle } from "./gameTypes";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game");
 if (!canvas) throw new Error("Missing game canvas.");
 
 const sound = new SoundSystem();
-const initialSeed = parseSeedFromUrl();
-const game = new Game(sound, initialSeed);
+const urlState = parseUrl();
+const game = new Game(sound, urlState.seed, urlState.puzzle);
 const renderer = new Renderer(canvas);
 new InputController(canvas, game, renderer);
 
-function parseSeedFromUrl(): number | undefined {
+function parseUrl(): { seed?: number; puzzle?: Puzzle } {
   const params = new URLSearchParams(window.location.search);
-  const raw = params.get("seed");
-  if (!raw) return undefined;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) ? parsed : undefined;
+
+  // ?p=<encoded> — 사용자가 만든 퍼즐 (전체 인코딩) 우선 처리
+  const p = params.get("p");
+  if (p) {
+    const decoded = decodePuzzle(p);
+    if (decoded && decoded.queue.length > 0) {
+      const puzzle: Puzzle = {
+        seed: 0, // 0 = 사용자 생성 (시드 없음)
+        template: "near-line",
+        difficulty: "Normal",
+        grid: decoded.grid,
+        queue: decoded.queue,
+        targetLines: 0,
+        movesLimit: decoded.queue.length,
+      };
+      return { puzzle };
+    }
+  }
+
+  // ?seed=<숫자> — 시드 기반 자동 생성 퍼즐
+  const seed = params.get("seed");
+  if (seed) {
+    const parsed = Number.parseInt(seed, 10);
+    if (Number.isFinite(parsed)) return { seed: parsed };
+  }
+
+  return {};
 }
 
 function applyViewportVars(): void {
