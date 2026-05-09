@@ -176,9 +176,6 @@ export class Renderer {
       this.line(ox, oy + y * cell + 0.5, ox + boardW, oy + y * cell + 0.5);
     }
 
-    // 보드 외곽선 (3px solid ink)
-    this.pixelStroke(ox, oy, boardW, boardH, active ? 3 : 2, resolveCssVar(TOKENS.ink));
-
     // 잠긴 셀
     snapshot.grid.forEach((row, y) => {
       row.forEach((kind, x) => {
@@ -203,6 +200,9 @@ export class Renderer {
       const cells = absoluteCells(snapshot.current);
       cells.forEach((point) => this.drawCell(ox, oy, cell, point.x, point.y, snapshot.current!.kind, 1, lockPulse > 0));
     }
+
+    // 보드 외곽선 (3px solid ink) — 셀을 가리도록 마지막에 그림
+    this.pixelStroke(ox, oy, boardW, boardH, active ? 3 : 2, resolveCssVar(TOKENS.ink));
 
     if (active) this.renderNext(snapshot, ox, oy, cell, boardW);
   }
