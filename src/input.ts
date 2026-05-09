@@ -19,9 +19,22 @@ export class InputController {
     canvas.addEventListener("pointerdown", this.onDown, { passive: false });
     canvas.addEventListener("pointerup", this.onUp, { passive: false });
     canvas.addEventListener("pointercancel", this.onCancel, { passive: false });
+    canvas.addEventListener("pointermove", this.onMove, { passive: true });
+    canvas.addEventListener("pointerleave", this.onLeave, { passive: true });
     canvas.addEventListener("contextmenu", (event) => event.preventDefault());
     window.addEventListener("keydown", this.onKey);
   }
+
+  private onMove = (event: PointerEvent): void => {
+    // 호버 미리보기 — 마우스가 누르지 않은 상태에서도 동작 (마우스 전용 효과)
+    if (event.pointerType === "touch" && !this.touch) return;
+    const col = this.renderer.screenToColumn(event.clientX, event.clientY);
+    this.game.setHoverColumn(col);
+  };
+
+  private onLeave = (): void => {
+    this.game.setHoverColumn(null);
+  };
 
   private onDown = (event: PointerEvent): void => {
     event.preventDefault();

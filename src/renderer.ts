@@ -254,6 +254,14 @@ export class Renderer {
       cells.forEach((point) => this.drawCell(ox, oy, cell, point.x, point.y, snapshot.current!.kind, 1, lockPulse > 0));
     }
 
+    // Planning 모드 호버 미리보기 (반투명 ghost)
+    if (active && snapshot.planningGhost) {
+      const { cells: ghostCells, kind } = snapshot.planningGhost;
+      ghostCells.forEach((point) => {
+        this.drawCell(ox, oy, cell, point.x, point.y, kind, 0.42, false);
+      });
+    }
+
     // 보드 외곽선 (3px solid ink) — 셀을 가리도록 마지막에 그림
     this.pixelStroke(ox, oy, boardW, boardH, active ? 3 : 2, resolveCssVar(TOKENS.ink));
 

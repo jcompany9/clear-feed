@@ -19,6 +19,7 @@ export class Game {
   private currentRotation = 0;
   private attempts = 0;
   private placementHistory: PlacementSnapshot[] = [];
+  private hoverColumn: number | null = null;
   private sound: SoundSystem;
   private animation: AnimationState = {
     landedAt: 0,
@@ -63,7 +64,33 @@ export class Game {
       queueIndex: this.queueIndex,
       attempts: this.attempts,
       currentRotation: this.currentRotation,
+      planningGhost: this.computeGhost(),
     };
+  }
+
+  setHoverColumn(col: number | null): void {
+    if (this.mode !== "planning") {
+      this.hoverColumn = null;
+      return;
+    }
+    this.hoverColumn = col;
+  }
+
+  /** hoverColumn에 현재 큐 피스를 떨어뜨렸을 때 안착 셀들. 없으면 null. */
+  private computeGhost(): { cells: Point[]; kind: "I" | "O" | "T" | "L" | "J" | "S" | "Z" } | null {
+    if (this.mode !== "planning" || this.hoverColumn === null) return null;
+    const kind = this.peekQueue();
+    if (!kind) return null;
+    let piece = createPiece(kind);
+    for (let i = 0; i < this.currentRotation; i += 1) {
+      piece = rotatePiece(piece);
+    }
+    piece = { ...piece, x: this.hoverColumn, y: -2 };
+    while (this.canPlace({ ...piece, y: piece.y + 1 })) {
+      piece = { ...piece, y: piece.y + 1 };
+    }
+    if (!this.canPlace(piece)) return null;
+    return { cells: absoluteCells(piece), kind };
   }
 
   update(_now: number): void {

@@ -66,4 +66,5 @@ export interface GameSnapshot {
   queueIndex: number;        // 다음 배치할 큐 위치 (0-indexed)
   attempts: number;          // 현재 퍼즐 시도 횟수 (실패 누적)
   currentRotation: number;   // 다음 배치할 피스의 회전 상태 (0~3)
+  planningGhost: { cells: Point[]; kind: PieceKind } | null;  // 마우스 호버 위치의 미리보기 셀들
 }
