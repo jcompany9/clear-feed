@@ -42,8 +42,10 @@ export function solve(puzzle: Puzzle, maxNodes = 200000): SolverResult {
   let nodesExplored = 0;
   let truncated = false;
   const path: SolverStep[] = [];
+  // 성공 조건: targetLines>0 면 라인 N개 도달, 아니면 perfect-clear (UGC 폴백)
+  const target = puzzle.targetLines;
 
-  function recurse(grid: Cell[][], i: number): boolean {
+  function recurse(grid: Cell[][], i: number, linesCleared: number): boolean {
     if (truncated) return false;
     nodesExplored += 1;
     if (nodesExplored > maxNodes) {
@@ -51,11 +53,13 @@ export function solve(puzzle: Puzzle, maxNodes = 200000): SolverResult {
       return false;
     }
 
+    if (target > 0 && linesCleared >= target) return true;
+
     if (i >= puzzle.queue.length) {
-      return isEmpty(grid);
+      return target === 0 ? isEmpty(grid) : false;
     }
 
-    const key = `${i}|${gridKey(grid)}`;
+    const key = `${i}|${linesCleared}|${gridKey(grid)}`;
     const cached = cache.get(key);
     if (cached !== undefined) return cached;
 
@@ -64,7 +68,6 @@ export function solve(puzzle: Puzzle, maxNodes = 200000): SolverResult {
 
     let result = false;
     outer: for (let rot = 0; rot < rotations; rot += 1) {
-      // 회전된 모양에서 유효 x 범위 (보드 안에 들어가는)
       const sample = rotateNTimes(createPiece(kind), rot);
       const minRel = Math.min(...sample.cells.map((c) => c.x));
       const maxRel = Math.max(...sample.cells.map((c) => c.x));
@@ -74,9 +77,9 @@ export function solve(puzzle: Puzzle, maxNodes = 200000): SolverResult {
       for (let col = xMin; col <= xMax; col += 1) {
         const piece = simulateDrop(grid, kind, col, rot);
         if (!piece) continue;
-        const next = clearLines(applyPiece(grid, piece));
+        const cleared = clearLines(applyPiece(grid, piece));
         path.push({ queueIndex: i, kind, x: col, rotation: rot });
-        if (recurse(next, i + 1)) {
+        if (recurse(cleared.grid, i + 1, linesCleared + cleared.cleared)) {
           result = true;
           break outer;
         }
@@ -88,7 +91,7 @@ export function solve(puzzle: Puzzle, maxNodes = 200000): SolverResult {
     return result;
   }
 
-  const solvable = recurse(cloneGrid(puzzle.grid), 0);
+  const solvable = recurse(cloneGrid(puzzle.grid), 0, 0);
 
   return {
     solvable: solvable && !truncated,
@@ -127,12 +130,19 @@ export function findSolvableQueue(
   length: number,
   maxAttempts = 50,
   rng: () => number = Math.random,
+  maxNodes = 200000,
+  targetLines = 0,
 ): FoundQueue | null {
   const start = performance.now();
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const queue: PieceKind[] = [];
     for (let i = 0; i < length; i += 1) {
-      queue.push(ALL_KINDS[Math.floor(rng() * ALL_KINDS.length)]);
+      // 연속 중복 방지 — 큐 다양성 ↑
+      let kind: PieceKind;
+      do {
+        kind = ALL_KINDS[Math.floor(rng() * ALL_KINDS.length)];
+      } while (queue.length > 0 && kind === queue[queue.length - 1]);
+      queue.push(kind);
     }
     const probe: Puzzle = {
       seed: 0,
@@ -140,10 +150,10 @@ export function findSolvableQueue(
       difficulty: "Easy" as Difficulty,
       grid,
       queue,
-      targetLines: 0,
+      targetLines,
       movesLimit: length,
     };
-    const result = solve(probe);
+    const result = solve(probe, maxNodes);
     if (result.solvable && result.steps) {
       return {
         queue,
@@ -154,6 +164,90 @@ export function findSolvableQueue(
     }
   }
   return null;
+}
+
+export interface AnalysisResult {
+  solutionCount: number;   // 0..maxSolutions (capped 시 capped=true)
+  capped: boolean;         // maxSolutions 도달 → 실제론 더 많을 수 있음
+  truncated: boolean;      // maxNodes 초과 → 결과 미확정
+  minSteps: number;        // 가장 짧은 풀이의 큐 사용 수 (없으면 -1)
+  nodesExplored: number;
+  timeMs: number;
+}
+
+/**
+ * 퍼즐의 풀이 개수와 난이도 지표를 측정.
+ * 풀이 1개만 찾는 solve()와 달리 모든 분기 탐색 (maxSolutions 까지 cap).
+ *
+ * 난이도 판정:
+ * - solutionCount 많음 = 다양한 경로로 풀림 (Easy)
+ * - 1개 = 정해진 한 길만 있음 (Challenge)
+ * - 0 = 풀 수 없음
+ *
+ * 메모이제이션은 안 씀 (count 누적이 cache 와 호환 안 됨).
+ */
+export function analyze(puzzle: Puzzle, maxSolutions = 5, maxNodes = 30000): AnalysisResult {
+  const start = performance.now();
+  let solutions = 0;
+  let nodesExplored = 0;
+  let truncated = false;
+  let minSteps = -1;
+  const target = puzzle.targetLines;
+
+  function recordSolution(stepsUsed: number): void {
+    solutions += 1;
+    if (minSteps === -1 || stepsUsed < minSteps) minSteps = stepsUsed;
+  }
+
+  function recurse(grid: Cell[][], i: number, linesCleared: number): void {
+    if (truncated || solutions >= maxSolutions) return;
+    nodesExplored += 1;
+    if (nodesExplored > maxNodes) {
+      truncated = true;
+      return;
+    }
+
+    if (target > 0 && linesCleared >= target) {
+      recordSolution(i);
+      return;
+    }
+
+    if (i >= puzzle.queue.length) {
+      if (target === 0 && isEmpty(grid)) recordSolution(i);
+      return;
+    }
+
+    const kind = puzzle.queue[i];
+    const rotations = ROTATIONS_PER_KIND[kind];
+
+    for (let rot = 0; rot < rotations; rot += 1) {
+      if (solutions >= maxSolutions || truncated) return;
+      const sample = rotateNTimes(createPiece(kind), rot);
+      const minRel = Math.min(...sample.cells.map((c) => c.x));
+      const maxRel = Math.max(...sample.cells.map((c) => c.x));
+      const xMin = -minRel;
+      const xMax = COLS - 1 - maxRel;
+
+      for (let col = xMin; col <= xMax; col += 1) {
+        if (solutions >= maxSolutions || truncated) return;
+        const piece = simulateDrop(grid, kind, col, rot);
+        if (!piece) continue;
+        const cleared = clearLines(applyPiece(grid, piece));
+        recurse(cleared.grid, i + 1, linesCleared + cleared.cleared);
+      }
+    }
+  }
+
+  recurse(cloneGrid(puzzle.grid), 0, 0);
+
+  return {
+    solutionCount: solutions,
+    capped: solutions >= maxSolutions,
+    truncated,
+    minSteps,
+    nodesExplored,
+    timeMs: performance.now() - start,
+  };
 }
 
 function cloneGrid(grid: Cell[][]): Cell[][] {
@@ -210,14 +304,14 @@ function applyPiece(grid: Cell[][], piece: Piece): Cell[][] {
   return result;
 }
 
-function clearLines(grid: Cell[][]): Cell[][] {
+function clearLines(grid: Cell[][]): { grid: Cell[][]; cleared: number } {
   const fullRows = grid
     .map((row, y) => (row.every(Boolean) && !row.some((cell) => cell === "wall") ? y : -1))
     .filter((r) => r >= 0);
-  if (!fullRows.length) return grid;
+  if (!fullRows.length) return { grid, cleared: 0 };
   let result = grid.filter((_, y) => !fullRows.includes(y));
   while (result.length < ROWS) {
     result = [Array.from({ length: COLS }, () => null), ...result];
   }
-  return result;
+  return { grid: result, cleared: fullRows.length };
 }

@@ -18,18 +18,20 @@ describe("createFeedPuzzle", () => {
     }
   });
 
-  it("movesLimit > targetLines (always solvable in principle)", () => {
+  it("targetLines achievable by total cells (cells + 4*moves >= 10*targetLines)", () => {
     for (const seed of [1, 7, 42, 1024, 99999]) {
       const puzzle = createFeedPuzzle(seed);
-      expect(puzzle.movesLimit).toBeGreaterThan(puzzle.targetLines);
+      const cells = puzzle.grid.flat().filter((c) => c !== null && c !== "wall").length;
+      const total = cells + puzzle.movesLimit * 4;
+      expect(total).toBeGreaterThanOrEqual(puzzle.targetLines * 10);
     }
   });
 
-  it("targetLines is in [1, 3]", () => {
+  it("targetLines is in [1, 6]", () => {
     for (let seed = 0; seed < 50; seed += 1) {
       const puzzle = createFeedPuzzle(seed);
       expect(puzzle.targetLines).toBeGreaterThanOrEqual(1);
-      expect(puzzle.targetLines).toBeLessThanOrEqual(3);
+      expect(puzzle.targetLines).toBeLessThanOrEqual(6);
     }
   });
 

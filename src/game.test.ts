@@ -230,13 +230,34 @@ describe("Game evaluation (clear / failed)", () => {
 describe("Game.retry", () => {
   beforeEach(() => localStorage.clear());
 
-  it("does nothing while still planning", () => {
-    const game = makeGame();
+  it("mid-planning restart increments attempts and resets queue/grid", () => {
+    // 1 피스 드롭으로 라인 클리어 발생하면 mode=clear 이 되어 retry 의미 달라짐 →
+    // 빈 보드 + 다중 피스 큐로 강제 (드롭해도 라인 클리어 X, 모드 유지)
+    const sound = new FakeSound() as unknown as SoundSystem;
+    const emptyGrid = Array.from({ length: ROWS }, () =>
+      Array.from({ length: COLS }, () => null),
+    );
+    const customPuzzle = {
+      seed: 0,
+      template: "near-line" as const,
+      difficulty: "Normal" as const,
+      grid: emptyGrid,
+      queue: ["O", "O", "O"] as Array<"O">,
+      targetLines: 1,
+      movesLimit: 3,
+    };
+    const game = new Game(sound, undefined, customPuzzle, { useWorker: false });
     game.startPlanning();
-    const before = game.snapshot.attempts;
-    game.retry();
-    expect(game.snapshot.attempts).toBe(before);
+    const initialQueueLen = game.snapshot.puzzle.queue.length;
+    game.dropCurrent();
+    const beforeAttempts = game.snapshot.attempts;
     expect(game.snapshot.mode).toBe("planning");
+    expect(game.snapshot.queueIndex).toBeGreaterThan(0);
+    game.retry();
+    expect(game.snapshot.mode).toBe("planning");
+    expect(game.snapshot.attempts).toBe(beforeAttempts + 1);
+    expect(game.snapshot.queueIndex).toBe(0);
+    expect(game.snapshot.puzzle.queue.length).toBe(initialQueueLen);
   });
 });
 

@@ -9,7 +9,6 @@ interface TouchState {
   startedAt: number;
   startedColumn: number | null;
   pieceStartX: number;
-  trail: Array<{ x: number; y: number }>;
 }
 
 export class InputController {
@@ -47,7 +46,6 @@ export class InputController {
       startedAt: performance.now(),
       startedColumn: startCol,
       pieceStartX: piece ? piece.x : 4,
-      trail: [{ x: event.clientX, y: event.clientY }],
     };
     // 컨트롤 버튼 누름 상태 (시각 피드백)
     if (this.game.snapshot.mode === "planning") {
@@ -81,11 +79,6 @@ export class InputController {
     }
 
     this.touch.lastX = event.clientX;
-    const last = this.touch.trail[this.touch.trail.length - 1];
-    if ((event.clientX - last.x) ** 2 + (event.clientY - last.y) ** 2 >= 16) {
-      this.touch.trail.push({ x: event.clientX, y: event.clientY });
-      this.game.setTouchTrail(this.touch.trail);
-    }
   };
 
   private onUp = (event: PointerEvent): void => {
@@ -97,37 +90,30 @@ export class InputController {
     const dy = event.clientY - this.touch.startY;
     const elapsed = performance.now() - this.touch.startedAt;
     const mode = this.game.snapshot.mode;
-    const horizontal = Math.abs(dx) > Math.abs(dy) * 1.15;
-    const vertical = Math.abs(dy) > Math.abs(dx) * 1.15;
     const isTap = Math.abs(dx) < 18 && Math.abs(dy) < 18 && elapsed < 320;
 
     if (mode === "planning") {
-      // 컨트롤 버튼이 가장 우선 (제스처보다 명시적 탭이 정확함)
       if (isTap) {
-        const action = this.renderer.screenToControl(event.clientX, event.clientY);
-        if (action) {
-          switch (action) {
-            case "left": this.game.moveCurrent(-1); break;
-            case "right": this.game.moveCurrent(1); break;
-            case "rotate": this.game.rotateCurrent(); break;
-            case "down": this.game.dropOrLock(); break;       // 1칸 / 바닥에서 잠금
-            case "hardDrop": this.game.dropCurrent(); break;  // 즉시 바닥 + 잠금
+        // 우선순위: 상단 버튼 (quit/retry) > 컨트롤 버튼 > 회전 폴백
+        if (this.renderer.isQuitButton(event.clientX, event.clientY)) {
+          this.game.abandon();
+        } else if (this.renderer.isRetryButton(event.clientX, event.clientY)) {
+          this.game.retry();
+        } else {
+          const action = this.renderer.screenToControl(event.clientX, event.clientY);
+          if (action) {
+            switch (action) {
+              case "left": this.game.moveCurrent(-1); break;
+              case "right": this.game.moveCurrent(1); break;
+              case "rotate": this.game.rotateCurrent(); break;
+              case "down": this.game.dropOrLock(); break;
+              case "hardDrop": this.game.dropCurrent(); break;
+            }
+          } else {
+            this.game.rotateCurrent();
           }
-          this.game.setTouchTrail([]);
-          this.touch = null;
-          return;
         }
       }
-      if (vertical && dy > 110) {
-        this.game.dropCurrent();
-      } else if (vertical && dy > 40) {
-        this.game.slideToFloor();
-      } else if (vertical && dy < -60) {
-        this.game.abandon();
-      } else if (isTap) {
-        this.game.rotateCurrent();
-      }
-      this.game.setTouchTrail([]);
     } else if (mode === "editing") {
       if (isTap) {
         // 우선순위: FINISH > ROTATE > 툴바 > 보드 셀
@@ -143,7 +129,6 @@ export class InputController {
         } else {
           const tool = this.renderer.screenToTool(event.clientX, event.clientY);
           if (tool !== null) {
-            // 같은 도구 재탭 = 회전 (모바일 친화적)
             if (tool === this.game.snapshot.editTool && tool !== "cell") {
               this.game.rotateEditTool();
             } else {
@@ -155,33 +140,30 @@ export class InputController {
           }
         }
       }
-      // 터치 종료 시 hover 정리 (터치는 hover 개념 없으니)
       if (event.pointerType === "touch") {
         this.game.setEditHoverPos(null);
       }
-      this.game.setTouchTrail([]);
-    } else if (mode === "feed" && isTap && this.renderer.isEditButton(event.clientX, event.clientY)) {
-      this.game.enterEditor();
-    } else if (horizontal && dx < -70) {
-      this.game.challengeFeed();
-    } else if (horizontal && dx > 70) {
-      this.game.returnFromChallenge();
-    } else if (vertical && Math.abs(dy) > 58) {
-      if (dy < 0) this.game.nextFeed(1);
-      else this.game.nextFeed(-1);
+    } else if (mode === "feed") {
+      // 위 스와이프 → 무작위 난이도 셔플 (탭은 startPlanning)
+      if (!isTap && dy < -60 && Math.abs(dy) > Math.abs(dx) * 1.15) {
+        this.game.shuffleFeed();
+      } else if (isTap) {
+        if (this.renderer.isEditButton(event.clientX, event.clientY)) {
+          this.game.enterEditor();
+        } else {
+          this.game.startPlanning();
+        }
+      }
     } else if (mode === "failed") {
       if (isTap) this.game.retry();
     } else if (mode === "clear") {
       if (isTap) {
-        // SHARE 버튼 우선 검사
         if (this.renderer.isShareResultButton(event.clientX, event.clientY)) {
           this.game.copyResultShare();
         } else {
           this.game.advance();
         }
       }
-    } else if (isTap) {
-      this.game.startPlanning();
     }
     this.touch = null;
   };
@@ -189,7 +171,6 @@ export class InputController {
   private onCancel = (event: PointerEvent): void => {
     if (this.touch?.id === event.pointerId) {
       this.touch = null;
-      this.game.setTouchTrail([]);
       this.game.setEditHoverPos(null);
       this.game.setPressedControl(null);
     }

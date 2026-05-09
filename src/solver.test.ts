@@ -30,14 +30,19 @@ function makePuzzle(grid: Cell[][], queue: PieceKind[], overrides: Partial<Puzzl
 }
 
 describe("solver — base cases", () => {
-  it("empty grid + empty queue → trivially solvable", () => {
-    const result = solve(makePuzzle(emptyGrid(), []));
+  it("empty grid + empty queue + targetLines=0 → trivially solvable (perfect-clear path)", () => {
+    const result = solve(makePuzzle(emptyGrid(), [], { targetLines: 0 }));
     expect(result.solvable).toBe(true);
     expect(result.truncated).toBe(false);
   });
 
-  it("empty grid + 1 piece → unsolvable (piece leaves 4 cells)", () => {
-    const result = solve(makePuzzle(emptyGrid(), ["O"]));
+  it("empty grid + empty queue + targetLines=1 → unsolvable (no lines cleared)", () => {
+    const result = solve(makePuzzle(emptyGrid(), []));
+    expect(result.solvable).toBe(false);
+  });
+
+  it("empty grid + 1 piece + targetLines=0 → unsolvable (piece leaves 4 cells)", () => {
+    const result = solve(makePuzzle(emptyGrid(), ["O"], { targetLines: 0 }));
     expect(result.solvable).toBe(false);
     expect(result.truncated).toBe(false);
   });

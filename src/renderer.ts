@@ -10,7 +10,7 @@ const CELL_SHADOW = "rgba(0, 0, 0, 0.22)";
 const FONT_PIXEL_BASE = '"Press Start 2P", "VT323", monospace';
 const FONT_MONO_BASE = '"JetBrains Mono", "SF Mono", "Courier New", monospace';
 
-const SCREEN_INSET = 12;
+const SCREEN_INSET = 6;
 
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
@@ -32,6 +32,9 @@ export class Renderer {
   private editRotateButton: { x: number; y: number; w: number; h: number } | null = null;
   // Planning 모드 D-pad 버튼 (left/rotate/right/slide/lock)
   private controlButtons: Array<{ x: number; y: number; w: number; h: number; action: PlanningControl }> = [];
+  // Planning 모드 상단 버튼 (quit / retry)
+  private quitButton: { x: number; y: number; w: number; h: number } | null = null;
+  private retryButton: { x: number; y: number; w: number; h: number } | null = null;
 
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d", { alpha: false });
@@ -101,6 +104,20 @@ export class Renderer {
     return screenX >= b.x && screenX <= b.x + b.w && screenY >= b.y && screenY <= b.y + b.h;
   }
 
+  /** 화면 좌표가 QUIT 버튼 위에 있으면 true */
+  isQuitButton(screenX: number, screenY: number): boolean {
+    if (!this.quitButton) return false;
+    const b = this.quitButton;
+    return screenX >= b.x && screenX <= b.x + b.w && screenY >= b.y && screenY <= b.y + b.h;
+  }
+
+  /** 화면 좌표가 RETRY 버튼 위에 있으면 true */
+  isRetryButton(screenX: number, screenY: number): boolean {
+    if (!this.retryButton) return false;
+    const b = this.retryButton;
+    return screenX >= b.x && screenX <= b.x + b.w && screenY >= b.y && screenY <= b.y + b.h;
+  }
+
   /** 화면 좌표가 planning 컨트롤 버튼 위에 있으면 그 액션, 아니면 null */
   screenToControl(screenX: number, screenY: number): PlanningControl | null {
     for (const b of this.controlButtons) {
@@ -130,13 +147,14 @@ export class Renderer {
     // Planning 모드 Layout B:
     //   header → mission → [BOARD | 큐 우측 세로] → ◀↻▼▶ 단일 행
     if (snapshot.mode === "planning") {
-      const missionGap = 18;
-      const queueColumnWidth = 56;
-      const controlsHeight = 76;    // 단일 행 + 드롭 섀도우 여백
+      const missionGap = 4;          // 헤더 간소화로 mission 위로 올라감 → gap 축소
+      const queueColumnWidth = 44;
+      const controlsHeight = 76;
+      const leftPad = 6;             // 필드 좌측 여백
       board = new DOMRect(
-        board.x,
+        board.x + leftPad,
         board.y + missionGap,
-        Math.max(120, board.width - queueColumnWidth - 12),
+        Math.max(120, board.width - leftPad - queueColumnWidth - 12),
         Math.max(80, board.height - missionGap - controlsHeight),
       );
     }
@@ -155,7 +173,6 @@ export class Renderer {
     } else {
       this.controlButtons = [];
     }
-    this.renderTouchTrail(snapshot);
     this.renderGestureHints(snapshot);
     this.renderOverlays(snapshot, now);
     this.renderToast(snapshot, now);
@@ -169,11 +186,13 @@ export class Renderer {
     const screen = this.screenRect();
     const gap = 4;
     const slotX = board.x + board.width + 8;
-    const slotW = Math.max(28, Math.min(52, screen.x + screen.width - slotX - 4));
-    const computedH = Math.floor((board.height - (queue.length - 1) * gap) / queue.length);
+    const slotW = Math.max(28, Math.min(40, screen.x + screen.width - slotX - 4));
+    // 필드 시각적 상단/높이 (renderBoard 의 oy/cell 기준 — board rect 가 아닌 실제 셀 영역)
+    const fieldTop = this.boardOy;
+    const fieldHeight = this.boardCell * ROWS;
+    const computedH = Math.floor((fieldHeight - (queue.length - 1) * gap) / queue.length);
     const slotH = Math.max(28, Math.min(slotW, computedH));
-    const totalH = queue.length * slotH + (queue.length - 1) * gap;
-    const startY = board.y + Math.max(0, (board.height - totalH) / 2);
+    const startY = fieldTop;
 
     for (let i = 0; i < queue.length; i += 1) {
       const kind = queue[i];
@@ -555,30 +574,6 @@ export class Renderer {
     this.ctx.textBaseline = "alphabetic";
   }
 
-  private renderTouchTrail(snapshot: GameSnapshot): void {
-    const trail = snapshot.animation.touchTrail;
-    if (!trail || trail.length < 2) return;
-    this.ctx.save();
-    // 점들을 잇는 선 (얇은 ink-soft 색)
-    this.ctx.strokeStyle = resolveCssVar(TOKENS.inkSoft);
-    this.ctx.lineWidth = 2;
-    this.ctx.globalAlpha = 0.5;
-    this.ctx.beginPath();
-    this.ctx.moveTo(trail[0].x, trail[0].y);
-    for (let i = 1; i < trail.length; i += 1) {
-      this.ctx.lineTo(trail[i].x, trail[i].y);
-    }
-    this.ctx.stroke();
-    // 끝점 강조 (현재 손가락 위치)
-    const last = trail[trail.length - 1];
-    this.ctx.globalAlpha = 0.9;
-    this.ctx.fillStyle = resolveCssVar(TOKENS.accent);
-    this.ctx.beginPath();
-    this.ctx.arc(last.x, last.y, 5, 0, Math.PI * 2);
-    this.ctx.fill();
-    this.ctx.restore();
-  }
-
   private renderToast(snapshot: GameSnapshot, now: number): void {
     const TOAST_MS = 1500;
     if (!snapshot.animation.toast || snapshot.animation.toastAt === 0) return;
@@ -681,64 +676,74 @@ export class Renderer {
       return;
     }
 
-    // 3-col 라벨
-    this.ctx.fillStyle = resolveCssVar(TOKENS.inkSoft);
-    this.ctx.fillText("BLOCKS", screen.x + 14, top + 8);
-    this.ctx.textAlign = "center";
-    this.ctx.fillText("PIECES", screen.x + screen.width / 2, top + 8);
-    this.ctx.textAlign = "right";
-    this.ctx.fillText("TRY", screen.x + screen.width - 14, top + 8);
-    this.ctx.textAlign = "left";
-
-    // 3-col 숫자
-    this.ctx.font = `bold 18px ${FONT_MONO_BASE}`;
+    // 단일 행 인라인 헤더: [✕] LINES 1/3   2/6   TRY 01 [↻]
     const total = snapshot.puzzle.queue.length;
     const placed = snapshot.queueIndex;
-    const cellsLeft = snapshot.grid.flat().filter((c) => c !== null && c !== "wall").length;
+    const target = snapshot.puzzle.targetLines;
+    const cleared = snapshot.linesCleared;
+    const tries = snapshot.attempts + (snapshot.mode === "planning" ? 1 : 0);
+    const rowY = top + 10;
 
-    // BLOCKS (왼쪽) — 0에 가까울수록 success 색
-    this.ctx.fillStyle = cellsLeft === 0 ? resolveCssVar(TOKENS.success) : resolveCssVar(TOKENS.ink);
-    this.ctx.fillText(this.padNumber(cellsLeft, 2), screen.x + 14, top + 26);
+    // 좌우 버튼 (planning 모드 한정 — feed/clear/failed 에선 hit area 비활성)
+    if (snapshot.mode === "planning") {
+      const btnW = 28;
+      const btnH = 20;
+      const btnY = top;
+      this.quitButton = { x: screen.x + 4, y: btnY, w: btnW, h: btnH };
+      this.retryButton = { x: screen.x + screen.width - btnW - 4, y: btnY, w: btnW, h: btnH };
+      this.drawTopButton(this.quitButton, "✕");
+      this.drawTopButton(this.retryButton, "↻");
+    } else {
+      this.quitButton = null;
+      this.retryButton = null;
+    }
 
-    // PIECES (가운데)
+    // 좌: LINES X/Y (목표 진행도) — planning 모드면 quit 버튼 폭만큼 우측으로 시프트
+    const leftShift = snapshot.mode === "planning" ? 36 : 10;
+    const rightShift = snapshot.mode === "planning" ? 36 : 10;
+    this.ctx.font = `9px ${FONT_PIXEL_BASE}`;
+    this.ctx.fillStyle = resolveCssVar(TOKENS.inkSoft);
+    this.ctx.textAlign = "left";
+    this.ctx.fillText("LINES", screen.x + leftShift, rowY);
+    this.ctx.font = `bold 13px ${FONT_MONO_BASE}`;
+    this.ctx.fillStyle = target > 0 && cleared >= target
+      ? resolveCssVar(TOKENS.success)
+      : resolveCssVar(TOKENS.ink);
+    const linesText = target > 0 ? `${cleared}/${target}` : `${cleared}`;
+    this.ctx.fillText(linesText, screen.x + leftShift + 38, rowY);
+
+    // 중: 0/6 (라벨 생략)
     this.ctx.textAlign = "center";
     this.ctx.fillStyle = resolveCssVar(TOKENS.ink);
-    this.ctx.fillText(`${placed}/${total}`, screen.x + screen.width / 2, top + 26);
+    this.ctx.fillText(`${placed}/${total}`, screen.x + screen.width / 2, rowY);
 
-    // TRY (오른쪽) — 2회 이상 빨간색
+    // 우: TRY 01
     this.ctx.textAlign = "right";
-    const tries = snapshot.attempts + (snapshot.mode === "planning" ? 1 : 0);
     this.ctx.fillStyle = tries > 1 ? resolveCssVar(TOKENS.danger) : resolveCssVar(TOKENS.ink);
-    this.ctx.fillText(this.padNumber(Math.max(1, tries), 2), screen.x + screen.width - 14, top + 26);
+    this.ctx.fillText(this.padNumber(Math.max(1, tries), 2), screen.x + screen.width - rightShift, rowY);
+    this.ctx.font = `9px ${FONT_PIXEL_BASE}`;
+    this.ctx.fillStyle = resolveCssVar(TOKENS.inkSoft);
+    this.ctx.fillText("TRY", screen.x + screen.width - rightShift - 26, rowY);
     this.ctx.textAlign = "left";
 
-    // 구분선
-    this.ctx.strokeStyle = resolveCssVar(TOKENS.ink);
-    this.ctx.lineWidth = 1;
-    this.line(screen.x + 12, top + 44, screen.x + screen.width - 12, top + 44);
-
-    // 미션 라벨 (퍼즐별 구체 수치) — JetBrains Mono Bold 11px (헤더 숫자와 동일 폰트)
-    this.ctx.font = `bold 11px ${FONT_MONO_BASE}`;
+    // 미션 라벨 — 헤더 바로 아래
+    this.ctx.font = `bold 10px ${FONT_MONO_BASE}`;
     this.ctx.textAlign = "center";
     this.ctx.fillStyle = resolveCssVar(TOKENS.accent);
-    this.ctx.fillText(this.computeMissionText(snapshot), screen.x + screen.width / 2, top + 58);
+    this.ctx.fillText(this.computeMissionText(snapshot), screen.x + screen.width / 2, top + 26);
     this.ctx.textAlign = "left";
   }
 
-  /** 퍼즐별 미션 문구: "N PIECES → CLEAR M LINES" — 수학적으로 안 떨어지면 폴백 */
+  /** 퍼즐별 미션 문구 — puzzle.targetLines 를 직접 사용 (게임 로직과 동일 기준). */
   private computeMissionText(snapshot: GameSnapshot): string {
-    const initialCells = snapshot.puzzle.grid.flat().filter((c) => c !== null && c !== "wall").length;
     const queueLen = snapshot.puzzle.queue.length;
-    const totalCells = initialCells + queueLen * 4;
-    if (totalCells % 10 === 0 && queueLen > 0) {
-      const lines = totalCells / 10;
-      const lineLabel = lines === 1 ? "LINE" : "LINES";
-      const pieceLabel = queueLen === 1 ? "PIECE" : "PIECES";
-      // TETRIS = 4-line clear (특별 라벨)
-      if (lines === 4) return `▶ ${queueLen} ${pieceLabel} → TETRIS! 4 LINES`;
-      return `▶ ${queueLen} ${pieceLabel} → CLEAR ${lines} ${lineLabel}`;
-    }
-    return `▶ ${queueLen} PIECES → EMPTY THE BOARD`;
+    const lines = snapshot.puzzle.targetLines;
+    const diff = snapshot.puzzle.difficulty.toUpperCase();
+    if (lines <= 0 || queueLen === 0) return `▶ ${diff} · ${queueLen} PIECES → EMPTY THE BOARD`;
+    const lineLabel = lines === 1 ? "LINE" : "LINES";
+    const pieceLabel = queueLen === 1 ? "PIECE" : "PIECES";
+    if (lines === 4) return `▶ ${diff} · ${queueLen} ${pieceLabel} → TETRIS!`;
+    return `▶ ${diff} · ${queueLen} ${pieceLabel} → CLEAR ${lines} ${lineLabel}`;
   }
 
   private renderFeed(snapshot: GameSnapshot, board: DOMRect, now: number): void {
@@ -853,8 +858,6 @@ export class Renderer {
 
     // 보드 외곽선 (3px solid ink) — 셀을 가리도록 마지막에 그림
     this.pixelStroke(ox, oy, boardW, boardH, active ? 3 : 2, resolveCssVar(TOKENS.ink));
-
-    if (active) this.renderNext(snapshot, ox, oy, cell, boardW);
   }
 
   private drawCell(
@@ -909,40 +912,12 @@ export class Renderer {
     this.ctx.globalAlpha = 1;
   }
 
-  private renderNext(snapshot: GameSnapshot, ox: number, _oy: number, _cell: number, boardW: number): void {
-    const screen = this.screenRect();
-    const labelY = screen.y + 8 + 60;
-    this.ctx.textAlign = "right";
-    this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
-    this.ctx.fillStyle = resolveCssVar(TOKENS.inkSoft);
-    this.ctx.fillText("NEXT", ox + boardW, labelY);
-    if (snapshot.next) {
-      const colors = PIECE_COLORS[snapshot.next];
-      this.ctx.font = `bold 14px ${FONT_MONO_BASE}`;
-      this.ctx.fillStyle = resolveCssVar(colors.stroke);
-      this.ctx.fillText(snapshot.next, ox + boardW, labelY + 16);
-    }
-    this.ctx.textAlign = "left";
-  }
-
   private renderGestureHints(snapshot: GameSnapshot): void {
     this.editButton = null;
     this.finishButton = null;
 
     if (snapshot.mode === "planning") {
-      const screen = this.screenRect();
-      this.ctx.save();
-      this.ctx.globalAlpha = 0.6;
-      this.ctx.textAlign = "center";
-      this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
-      this.ctx.fillStyle = resolveCssVar(TOKENS.inkMute);
-      this.ctx.fillText(
-        "DRAG/TAP   ↓ SLIDE   ⏎ LOCK   ↑ QUIT   U UNDO",
-        screen.x + screen.width / 2,
-        screen.y + screen.height - 14,
-      );
-      this.ctx.restore();
-      this.ctx.textAlign = "left";
+      // 스와이프 제스처 제거 — 상단 quit/retry 버튼 + 하단 D-pad 로 모든 조작 명시화
       return;
     }
 
@@ -1140,7 +1115,7 @@ export class Renderer {
 
   private boardRect(): DOMRect {
     const screen = this.screenRect();
-    const top = screen.y + 60;
+    const top = screen.y + 36;
     const bottom = screen.y + screen.height - 28;
     return new DOMRect(screen.x, top, screen.width, bottom - top);
   }
@@ -1184,5 +1159,21 @@ export class Renderer {
 
   private padNumber(value: number, width: number): string {
     return value.toString().padStart(width, "0");
+  }
+
+  /** 상단 모서리 작은 아이콘 버튼 (quit / retry). 평면 박스 + 외곽선 + 가운데 글리프. */
+  private drawTopButton(rect: { x: number; y: number; w: number; h: number }, glyph: string): void {
+    this.ctx.save();
+    this.ctx.fillStyle = resolveCssVar(TOKENS.bgPanel);
+    this.ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    this.pixelStroke(rect.x, rect.y, rect.w, rect.h, 1, resolveCssVar(TOKENS.ink));
+    this.ctx.font = `bold 13px ${FONT_MONO_BASE}`;
+    this.ctx.textAlign = "center";
+    this.ctx.textBaseline = "middle";
+    this.ctx.fillStyle = resolveCssVar(TOKENS.ink);
+    this.ctx.fillText(glyph, rect.x + rect.w / 2, rect.y + rect.h / 2 + 1);
+    this.ctx.restore();
+    this.ctx.textAlign = "left";
+    this.ctx.textBaseline = "alphabetic";
   }
 }

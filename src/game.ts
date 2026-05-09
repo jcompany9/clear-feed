@@ -37,6 +37,7 @@ export interface GameOptions {
 interface PlacementSnapshot {
   grid: Cell[][];
   queueIndex: number;
+  linesCleared: number;
 }
 
 export class Game {
@@ -48,6 +49,7 @@ export class Game {
   private queueIndex = 0;
   private history: PlacementSnapshot[] = [];
   private attempts = 0;
+  private linesCleared = 0;
   private pressedControl: string | null = null;
   private editGrid: Cell[][] = [];
   private editQueueLength = 5;
@@ -104,7 +106,7 @@ export class Game {
       current: this.currentPiece,
       next: this.activePuzzle.queue[this.queueIndex + 1] ?? null,
       blocksLeft: this.activePuzzle.queue.length - this.queueIndex,
-      linesCleared: 0,
+      linesCleared: this.linesCleared,
       feed: this.feed,
       feedIndex: this.feedIndex,
       soundOn: this.sound.isEnabled,
@@ -194,6 +196,7 @@ export class Game {
     this.queueIndex = 0;
     this.history = [];
     this.attempts = 0;
+    this.linesCleared = 0;
     this.animation.message = "";
     this.spawnNext();
     this.sound.unlock();
@@ -310,6 +313,7 @@ export class Game {
     this.history.push({
       grid: cloneGrid(this.grid),
       queueIndex: this.queueIndex,
+      linesCleared: this.linesCleared,
     });
     let piece = this.currentPiece;
     while (this.canPlace({ ...piece, y: piece.y + 1 })) {
@@ -327,6 +331,11 @@ export class Game {
     this.clearLines();
     this.queueIndex += 1;
     this.currentPiece = null;
+    // 목표 라인 달성 즉시 CLEAR (큐 소진 기다리지 않음)
+    if (this.linesCleared >= this.activePuzzle.targetLines && this.activePuzzle.targetLines > 0) {
+      this.evaluate();
+      return;
+    }
     this.spawnNext();
   }
 
@@ -337,6 +346,7 @@ export class Game {
     if (!prev) return;
     this.grid = prev.grid;
     this.queueIndex = prev.queueIndex;
+    this.linesCleared = prev.linesCleared;
     this.spawnNext();
     this.sound.play("move");
   }
@@ -350,24 +360,30 @@ export class Game {
     return absoluteCells(piece);
   }
 
-  private clearLines(): void {
+  /** 가득 찬 줄 제거 + 위 블록 낙하. 제거된 라인 수 반환. */
+  private clearLines(): number {
     const rows = this.grid
       .map((row, y) => (row.every(Boolean) && !row.some((cell) => cell === "wall") ? y : -1))
       .filter((row) => row >= 0);
-    if (!rows.length) return;
+    if (!rows.length) return 0;
     this.animation.clearingRows = rows;
     this.animation.clearStartedAt = performance.now();
     this.grid = this.grid.filter((_, y) => !rows.includes(y));
     while (this.grid.length < ROWS) this.grid.unshift(Array.from({ length: COLS }, () => null));
     this.sound.play("line");
+    this.linesCleared += rows.length;
+    return rows.length;
   }
 
   private evaluate(): void {
     this.attempts += 1;
+    const target = this.activePuzzle.targetLines;
+    // 목표 라인 도달 = CLEAR (보드에 블록 남아 있어도 OK)
+    // target 0 (UGC 사용자 퍼즐) 인 경우엔 perfect-clear 폴백
     const isEmpty = this.grid.every((row) => row.every((cell) => cell === null));
-    if (isEmpty) {
+    const success = target > 0 ? this.linesCleared >= target : isEmpty;
+    if (success) {
       this.mode = "clear";
-      // 별 등급: 1회=★★★, 2회=★★, 3회+=★
       const stars =
         this.attempts === 1 ? "★★★" : this.attempts === 2 ? "★★" : "★";
       this.animation.message = this.attempts === 1
@@ -386,13 +402,17 @@ export class Game {
   }
 
   retry(): void {
-    if (this.mode !== "failed" && this.mode !== "clear") return;
+    if (this.mode !== "failed" && this.mode !== "clear" && this.mode !== "planning") return;
     if (this.mode === "clear") {
       this.attempts = 0;
+    } else if (this.mode === "planning") {
+      // 진행 중 재시작 = 현재 시도 포기 → 새 시도 시작 (attempts 1 증가)
+      this.attempts += 1;
     }
     this.grid = cloneGrid(this.activePuzzle.grid);
     this.queueIndex = 0;
     this.history = [];
+    this.linesCleared = 0;
     this.mode = "planning";
     this.animation.message = "";
     this.spawnNext();
@@ -414,6 +434,7 @@ export class Game {
     if (this.mode !== "planning") return;
     this.mode = "feed";
     this.attempts = 0;
+    this.linesCleared = 0;
     this.grid = cloneGrid(this.activePuzzle.grid);
     this.queueIndex = 0;
     this.history = [];
@@ -451,6 +472,22 @@ export class Game {
     this.grid = cloneGrid(this.activePuzzle.grid);
     this.animation.feedSlide = 0;
     this.animation.feedSlideX = -1.15;
+    this.sound.play("feed");
+  }
+
+  /** 피드 셔플 — Easy/Normal 새 퍼즐 (둘 다 constructed → 즉시 생성).
+   *  Challenge 는 솔버 검증으로 ~수초 블로킹 → 셔플에선 제외. */
+  shuffleFeed(): void {
+    if (this.mode !== "feed") return;
+    this.captureFeedTransition();
+    const seed = this.activePuzzle.seed + 91 + this.feedIndex * 31 + Math.floor(Math.random() * 1000);
+    this.feed.splice(this.feedIndex + 1, 0, { puzzle: createFeedPuzzle(seed, false), cleared: false });
+    this.feedIndex += 1;
+    this.attempts = 0;
+    this.linesCleared = 0;
+    this.grid = cloneGrid(this.activePuzzle.grid);
+    this.animation.feedSlide = 1.15;
+    this.animation.feedSlideX = 0;
     this.sound.play("feed");
   }
 
