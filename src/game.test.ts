@@ -424,16 +424,17 @@ describe("Editor — tool selection & piece placement", () => {
     expect(game.snapshot.editToolRotation).toBe(0);
   });
 
-  it("editPlaceAt with piece tool places 4 cells with that piece's kind", () => {
+  it("editPlaceAt with piece tool drops from top (real-tetris) — O lands at floor", () => {
     const game = makeGame();
     game.enterEditor();
     game.setEditTool("O");
-    // O-piece cells: (0,0),(1,0),(0,1),(1,1) — at (col=4, row=10) → (4,10),(5,10),(4,11),(5,11)
-    game.editPlaceAt(4, 10);
-    expect(game.snapshot.editGrid[10][4]).toBe("O");
-    expect(game.snapshot.editGrid[10][5]).toBe("O");
-    expect(game.snapshot.editGrid[11][4]).toBe("O");
-    expect(game.snapshot.editGrid[11][5]).toBe("O");
+    // 빈 보드에서 O 를 col=4 로 떨어뜨림 → 바닥(row 18-19)에 안착
+    // O cells: (0,0)(1,0)(0,1)(1,1) at piece (4, 18) → (4,18)(5,18)(4,19)(5,19)
+    game.editPlaceAt(4, 10);  // row 인자는 무시됨 (drop 방식)
+    expect(game.snapshot.editGrid[18][4]).toBe("O");
+    expect(game.snapshot.editGrid[18][5]).toBe("O");
+    expect(game.snapshot.editGrid[19][4]).toBe("O");
+    expect(game.snapshot.editGrid[19][5]).toBe("O");
   });
 
   it("editPlaceAt with cell tool toggles a single cell (legacy behavior)", () => {
@@ -445,16 +446,19 @@ describe("Editor — tool selection & piece placement", () => {
     expect(game.snapshot.editGrid[19][3]).toBeNull();
   });
 
-  it("editPlaceAt with piece tool refuses to overlap existing cells", () => {
+  it("editPlaceAt with piece tool stacks pieces — second O lands on top of first", () => {
     const game = makeGame();
     game.enterEditor();
     game.setEditTool("O");
     game.editPlaceAt(4, 10);
-    const filledBefore = game.snapshot.editGrid.flat().filter((c) => c !== null).length;
-    // Try to place another O at the same position — should fail (BLOCKED)
+    // 두 번째 O 는 첫 O 위에 쌓임 (실제 테트리스처럼)
     game.editPlaceAt(4, 10);
-    const filledAfter = game.snapshot.editGrid.flat().filter((c) => c !== null).length;
-    expect(filledAfter).toBe(filledBefore);
+    expect(game.snapshot.editGrid[16][4]).toBe("O");
+    expect(game.snapshot.editGrid[16][5]).toBe("O");
+    expect(game.snapshot.editGrid[17][4]).toBe("O");
+    expect(game.snapshot.editGrid[17][5]).toBe("O");
+    const filled = game.snapshot.editGrid.flat().filter((c) => c !== null).length;
+    expect(filled).toBe(8);  // 두 개의 O = 8 셀
   });
 
   it("editPlaceAt refuses out-of-bounds piece placements", () => {

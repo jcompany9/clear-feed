@@ -14,6 +14,7 @@ import {
 import { absoluteCells, createPiece, rotatePiece } from "./pieces";
 import { createFeedPuzzle, createInitialFeed } from "./puzzleGenerator";
 import { generateShufflePuzzle } from "./game/adaptPuzzle";
+import { CURATED_PUZZLES, pickCuratedPuzzle } from "./curatedPuzzles";
 import { getPuzzlePool } from "./puzzlePool";
 import { findSolvableQueue } from "./solver";
 import SolverWorker from "./solverWorker?worker";
@@ -154,13 +155,14 @@ export class Game {
         valid: col >= 0 && col < COLS && row >= 0 && row < ROWS,
       };
     }
-    let piece = createPiece(this.editTool);
-    for (let i = 0; i < this.editToolRotation; i += 1) piece = rotatePiece(piece);
-    piece = { ...piece, x: col, y: row };
-    const cells = absoluteCells(piece);
-    const inBounds = cells.every((c) => c.x >= 0 && c.x < COLS && c.y >= 0 && c.y < ROWS);
-    const free = inBounds && cells.every((c) => this.editGrid[c.y][c.x] === null);
-    return { cells, kind: this.editTool, valid: inBounds && free };
+    // 피스 도구: drop-from-top — col 의 안착 위치 미리보기
+    const landed = this.computeEditDrop(col);
+    if (!landed) {
+      // 컬럼 막힘 — 빈 ghost (보여줄 위치 없음)
+      return { cells: [], kind: this.editTool, valid: false };
+    }
+    const cells = absoluteCells(landed).filter((c) => c.y >= 0 && c.y < ROWS && c.x >= 0 && c.x < COLS);
+    return { cells, kind: this.editTool, valid: true };
   }
 
   /** 수학적으로 풀이 가능한 큐 길이 (1~10 범위). (cellCount + 4q) % 10 === 0 만족하는 q. */
@@ -484,10 +486,16 @@ export class Game {
   shuffleFeed(): void {
     if (this.mode !== "feed") return;
     this.captureFeedTransition();
-    // 우선순위: 워커 풀 (즉시) → sync 신규 솔버 (~수초) → 옛 폴백 (즉시)
+    // 우선순위:
+    //   1. 큐레이션 풀 (사람 디자인 + AI 검증) — 50% 확률
+    //   2. 워커 풀 (즉시)
+    //   3. sync 신규 솔버 (~수초)
+    //   4. 옛 보장된 폴백
     const seed = this.activePuzzle.seed + 91 + this.feedIndex * 31 + Math.floor(Math.random() * 1000);
-    const pooled = getPuzzlePool().pop();
-    const puzzle = pooled ?? generateShufflePuzzle(seed) ?? createFeedPuzzle(seed, false);
+    const useCurated = CURATED_PUZZLES.length > 0 && Math.random() < 0.5;
+    const curated = useCurated ? pickCuratedPuzzle(seed) : null;
+    const pooled = curated ? null : getPuzzlePool().pop();
+    const puzzle = curated ?? pooled ?? generateShufflePuzzle(seed) ?? createFeedPuzzle(seed, false);
     this.feed.splice(this.feedIndex + 1, 0, { puzzle, cleared: false });
     this.feedIndex += 1;
     this.attempts = 0;
@@ -538,35 +546,55 @@ export class Game {
     this.sound.play("rotate");
   }
 
-  /** 현재 선택된 도구로 (col, row)에 작용. 도구가 셀이면 토글, 피스면 4셀 배치. */
+  /** 현재 선택된 도구로 (col, row)에 작용.
+   *  - cell 도구: (col, row) 토글
+   *  - piece 도구: drop-from-top — col 만 사용, 위에서 떨어져 닿는 위치에 잠금 (실제 테트리스) */
   editPlaceAt(col: number, row: number): void {
     if (this.mode !== "editing") return;
     if (this.editTool === "cell") {
       this.editToggleCell(col, row);
       return;
     }
-    // 피스 배치: 회전 적용 후, (col, row)를 piece의 (x, y)로 사용
-    let piece = createPiece(this.editTool);
-    for (let i = 0; i < this.editToolRotation; i += 1) piece = rotatePiece(piece);
-    piece = { ...piece, x: col, y: row };
-    const cells = absoluteCells(piece);
-    // 모든 셀이 보드 안 + 비어있어야 배치 가능
-    const outOfBounds = cells.some((c) => c.x < 0 || c.x >= COLS || c.y < 0 || c.y >= ROWS);
-    if (outOfBounds) {
-      this.flashToast("OUT OF BOUNDS");
-      return;
-    }
-    const blocked = cells.some((c) => this.editGrid[c.y][c.x] !== null);
-    if (blocked) {
+    // 피스 도구: drop-from-top
+    const landed = this.computeEditDrop(col);
+    if (!landed) {
       this.flashToast("BLOCKED");
       return;
     }
+    const cells = absoluteCells(landed);
     for (const cell of cells) {
-      this.editGrid[cell.y][cell.x] = this.editTool;
+      if (cell.y >= 0 && cell.y < ROWS && cell.x >= 0 && cell.x < COLS) {
+        this.editGrid[cell.y][cell.x] = this.editTool as Cell;
+      }
     }
     this.editFoundQueue = null;
     this.editStatus = "idle";
     this.sound.play("land");
+  }
+
+  /** 편집 보드에서 현재 도구(piece)를 col 컬럼에 떨어뜨릴 때 안착 위치 반환.
+   *  도구가 cell 이거나 어떤 위치에서도 못 놓이면 null. */
+  private computeEditDrop(col: number): Piece | null {
+    if (this.mode !== "editing" || this.editTool === "cell") return null;
+    let piece = createPiece(this.editTool);
+    for (let i = 0; i < this.editToolRotation; i += 1) piece = rotatePiece(piece);
+    piece = { ...piece, x: col, y: -2 };
+    if (!this.canPlaceOnEditGrid(piece)) {
+      // 시작 위치(맨 위)도 못 놓이면 컬럼 자체가 막힘
+      return null;
+    }
+    while (this.canPlaceOnEditGrid({ ...piece, y: piece.y + 1 })) {
+      piece = { ...piece, y: piece.y + 1 };
+    }
+    return piece;
+  }
+
+  private canPlaceOnEditGrid(piece: Piece): boolean {
+    return absoluteCells(piece).every((cell) => {
+      if (cell.x < 0 || cell.x >= COLS || cell.y >= ROWS) return false;
+      if (cell.y < 0) return true;  // 보드 위 영역은 OK (스폰 공간)
+      return !this.editGrid[cell.y][cell.x];
+    });
   }
 
   /** 편집 보드의 (x, y) 셀 토글 (빈 ↔ "garbage") */
