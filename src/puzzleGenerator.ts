@@ -48,13 +48,8 @@ export function createFeedPuzzle(seed: number, challenge = false, fast = false):
  * 다 실패 시 확정 풀이 가능한 안전 폴백 (warmup-i-gap).
  */
 function buildConstructedEasy(seed: number, rng: Rng): Puzzle {
-  if (!SKIP_SOLVER_VERIFY) {
-    // 다양성 ↑ — random-dropped 보드 먼저 6번 시도 (자연스러운 비대칭/계단/well 모양)
-    for (let i = 0; i < 6; i += 1) {
-      const dropped = buildRandomDroppedBoardPuzzle(seed * 17 + i * 31);
-      if (dropped) return { ...dropped, seed, difficulty: "Easy" };
-    }
-  }
+  // NOTE: random-dropped 시도 비활성 — 솔버 검증이 무거워 무한 로딩 유발.
+  // 다음 이터: maxNodes/attempts 더 깎거나 비동기 워커로 옮김.
   const attempts = SKIP_SOLVER_VERIFY ? 1 : 12;
   for (let i = 0; i < attempts; i += 1) {
     const pattern = pickEasyPattern(rng);
@@ -181,12 +176,7 @@ const easy4Row3GapJOIO: EasyPattern = (rng) => {
  * Normal 모드: 3 피스 큐, 2~3 라인 클리어 — 더 깊은 계획 필요.
  */
 function buildConstructedNormal(seed: number, rng: Rng): Puzzle {
-  if (!SKIP_SOLVER_VERIFY) {
-    for (let i = 0; i < 6; i += 1) {
-      const dropped = buildRandomDroppedBoardPuzzle(seed * 23 + i * 41);
-      if (dropped) return { ...dropped, seed, difficulty: "Normal" };
-    }
-  }
+  // NOTE: random-dropped 시도 비활성 — 무한 로딩 유발 (buildConstructedEasy 동일).
   const attempts = SKIP_SOLVER_VERIFY ? 1 : 12;
   for (let i = 0; i < attempts; i += 1) {
     const pattern = pickNormalPattern(rng);
