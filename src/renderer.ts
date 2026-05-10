@@ -499,7 +499,7 @@ export class Renderer {
     this.renderEditorQueue(snapshot, ox + boardW + 8, oy);
 
     // 분석 결과 — 보드 위에
-    this.renderEditorAnalysis(snapshot, ox, oy - 22, boardW);
+    this.renderEditorAnalysis(snapshot, ox, oy - 30, boardW);
 
     // 툴바 — 보드 바로 아래
     this.renderEditorToolbar(snapshot, oy + boardH + 10);
@@ -569,18 +569,34 @@ export class Renderer {
     const cells = snapshot.editGrid.flat().filter((c) => c !== null).length;
     const sol = snapshot.editSolutionEstimate;
     const analyzing = snapshot.editAnalyzing;
-    let label: string;
-    if (cells < 6) label = `${cells} CELLS — KEEP STACKING`;
-    else if (analyzing) label = `${cells} CELLS — ANALYZING…`;
-    else if (sol > 0) label = `${cells} CELLS — SOLVABLE ✓`;
-    else label = `${cells} CELLS — NO SOLUTION FOUND`;
+    const q = snapshot.editQueueLength;
+    const total = cells + q * 4;
+    const targetLines = total > 0 && total % 10 === 0 ? total / 10 : null;
+    const oddCells = cells % 2 === 1;
+
+    // 라인 1: 보드 상태 + 분석
+    let line1: string;
+    let line1Color: string = TOKENS.inkSoft;
+    if (cells === 0) line1 = "EMPTY — STACK PIECES";
+    else if (oddCells) { line1 = `${cells} CELLS — ODD! ADD/REMOVE 1`; line1Color = TOKENS.warning; }
+    else if (cells < 6) line1 = `${cells} CELLS — KEEP STACKING`;
+    else if (analyzing) line1 = `${cells} CELLS — ANALYZING…`;
+    else if (sol > 0) { line1 = `${cells} CELLS — SOLVABLE ✓`; line1Color = TOKENS.success; }
+    else { line1 = `${cells} CELLS — NO SOLUTION`; line1Color = TOKENS.warning; }
+
+    // 라인 2: 미션 (target lines + queue length)
+    const line2 = targetLines !== null
+      ? `MISSION: CLEAR ${targetLines} LINES · Q=${q} (+/-)`
+      : `Q=${q} (+/-) — ADJUST TO MATCH CELLS`;
+    const line2Color = targetLines !== null ? TOKENS.accent : TOKENS.inkSoft;
+
     this.ctx.save();
     this.ctx.font = `9px ${FONT_PIXEL_BASE}`;
     this.ctx.textAlign = "left";
-    this.ctx.fillStyle = resolveCssVar(
-      cells < 6 ? TOKENS.inkSoft : sol > 0 ? TOKENS.success : TOKENS.warning,
-    );
-    this.ctx.fillText(label, x, y + 12);
+    this.ctx.fillStyle = resolveCssVar(line1Color);
+    this.ctx.fillText(line1, x, y + 4);
+    this.ctx.fillStyle = resolveCssVar(line2Color);
+    this.ctx.fillText(line2, x, y + 16);
     this.ctx.restore();
     void w;
   }
