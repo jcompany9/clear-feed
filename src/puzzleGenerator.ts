@@ -197,13 +197,19 @@ function buildConstructedNormal(seed: number, rng: Rng): Puzzle {
 /**
  * 확정 풀이 가능한 perfect-clear 폴백 — row 19 6칸 채움 + I 1개로 1라인.
  * 다른 모든 polback 이 unsolvable 일 때 사용자에게 풀 수 있는 퍼즐 보장.
+ * 셀은 7종 PieceKind 중 random (단색 garbage 가 아닌 GBC 7색).
  */
 function safePerfectClearFallback(seed: number, difficulty: Difficulty): Puzzle {
+  const rng = createRng(seed);
   const grid: Cell[][] = Array.from({ length: ROWS }, () =>
     Array.from({ length: COLS }, () => null as Cell),
   );
-  // row 19: ###...####  → I 가로로 빈 3칸... 잠깐 4-gap 필요. ###....### (3+4+3)
-  grid[ROWS - 1] = ["garbage", "garbage", "garbage", null, null, null, null, "garbage", "garbage", "garbage"];
+  // row 19: ###....### (3+4+3) → I-piece 가로로 가운데 4칸 채우면 1라인 클리어 → 0 블록
+  const fill: Cell[] = [
+    randomBlock(rng), randomBlock(rng), randomBlock(rng), null, null, null, null,
+    randomBlock(rng), randomBlock(rng), randomBlock(rng),
+  ];
+  grid[ROWS - 1] = fill;
   return {
     seed,
     template: "near-line",
@@ -767,8 +773,9 @@ function dropPieceToBoard(grid: Cell[][], kind: PieceKind, rotation: number, col
   while (canPlacePiece(grid, { ...piece, y: piece.y + 1 })) {
     piece = { ...piece, y: piece.y + 1 };
   }
+  // 셀 색을 piece 종류 (PieceKind) 자체로 — 7종 GBC 색이 보드에 자연스럽게 박힘
   for (const c of absoluteCells(piece)) {
-    if (c.y >= 0 && c.y < ROWS && c.x >= 0 && c.x < COLS) grid[c.y][c.x] = "garbage";
+    if (c.y >= 0 && c.y < ROWS && c.x >= 0 && c.x < COLS) grid[c.y][c.x] = kind;
   }
 }
 
