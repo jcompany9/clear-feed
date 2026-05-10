@@ -1,7 +1,7 @@
 import { COLS, ROWS, type Cell, type GameSnapshot, type PieceKind, type Puzzle } from "./gameTypes";
 
 export type PlanningControl = "left" | "right" | "rotate" | "down" | "hardDrop";
-import { absoluteCells, createPiece, rotatePiece } from "./pieces";
+import { absoluteCells, createPiece } from "./pieces";
 import { PIECE_COLORS, TOKENS, clearColorCache, resolveCssVar } from "./colors";
 
 const CELL_HIGHLIGHT = "rgba(255, 255, 255, 0.45)";
@@ -27,7 +27,6 @@ export class Renderer {
   // 클리어 오버레이 SHARE 버튼
   private shareResultButton: { x: number; y: number; w: number; h: number } | null = null;
   // 에디터 도구 박스 클릭 영역
-  private editToolBoxes: Array<{ x: number; y: number; w: number; h: number; tool: "cell" | PieceKind }> = [];
   // 에디터 회전 버튼 클릭 영역
   private editRotateButton: { x: number; y: number; w: number; h: number } | null = null;
   // Planning 모드 D-pad 버튼 (left/rotate/right/slide/lock)
@@ -87,15 +86,6 @@ export class Renderer {
     return screenX >= b.x && screenX <= b.x + b.w && screenY >= b.y && screenY <= b.y + b.h;
   }
 
-  /** 화면 좌표가 에디터 툴바 박스 위에 있으면 그 도구, 아니면 null */
-  screenToTool(screenX: number, screenY: number): "cell" | PieceKind | null {
-    for (const box of this.editToolBoxes) {
-      if (screenX >= box.x && screenX <= box.x + box.w && screenY >= box.y && screenY <= box.y + box.h) {
-        return box.tool;
-      }
-    }
-    return null;
-  }
 
   /** 화면 좌표가 회전 버튼 위에 있으면 true */
   isEditRotateButton(screenX: number, screenY: number): boolean {
@@ -460,38 +450,26 @@ export class Renderer {
       });
     });
 
-    // 호버 미리보기 ghost
+    // 호버 미리보기 ghost — drop 안착 위치 (실제 테트리스 ghost)
     if (snapshot.editHoverGhost) {
       const { cells, kind, valid } = snapshot.editHoverGhost;
       const alpha = valid ? 0.5 : 0.25;
-      if (kind === "cell") {
-        // 단일 셀 하이라이트
+      cells.forEach((p) => {
+        if (p.y < 0 || p.y >= ROWS || p.x < 0 || p.x >= COLS) return;
+        this.drawCell(ox, oy, cell, p.x, p.y, kind, alpha, false);
+      });
+      if (!valid) {
         cells.forEach((p) => {
           if (p.y < 0 || p.y >= ROWS || p.x < 0 || p.x >= COLS) return;
-          this.ctx.globalAlpha = alpha;
-          this.ctx.fillStyle = resolveCssVar(valid ? TOKENS.accent : TOKENS.danger);
-          this.ctx.fillRect(ox + p.x * cell + 1, oy + p.y * cell + 1, cell - 2, cell - 2);
-          this.ctx.globalAlpha = 1;
+          this.ctx.strokeStyle = resolveCssVar(TOKENS.danger);
+          this.ctx.lineWidth = 2;
+          this.ctx.beginPath();
+          this.ctx.moveTo(ox + p.x * cell + 4, oy + p.y * cell + 4);
+          this.ctx.lineTo(ox + (p.x + 1) * cell - 4, oy + (p.y + 1) * cell - 4);
+          this.ctx.moveTo(ox + (p.x + 1) * cell - 4, oy + p.y * cell + 4);
+          this.ctx.lineTo(ox + p.x * cell + 4, oy + (p.y + 1) * cell - 4);
+          this.ctx.stroke();
         });
-      } else {
-        cells.forEach((p) => {
-          if (p.y < 0 || p.y >= ROWS || p.x < 0 || p.x >= COLS) return;
-          this.drawCell(ox, oy, cell, p.x, p.y, kind, alpha, false);
-        });
-        // invalid면 빨간 X 오버레이
-        if (!valid) {
-          cells.forEach((p) => {
-            if (p.y < 0 || p.y >= ROWS || p.x < 0 || p.x >= COLS) return;
-            this.ctx.strokeStyle = resolveCssVar(TOKENS.danger);
-            this.ctx.lineWidth = 2;
-            this.ctx.beginPath();
-            this.ctx.moveTo(ox + p.x * cell + 4, oy + p.y * cell + 4);
-            this.ctx.lineTo(ox + (p.x + 1) * cell - 4, oy + (p.y + 1) * cell - 4);
-            this.ctx.moveTo(ox + (p.x + 1) * cell - 4, oy + p.y * cell + 4);
-            this.ctx.lineTo(ox + p.x * cell + 4, oy + (p.y + 1) * cell - 4);
-            this.ctx.stroke();
-          });
-        }
       }
     }
 
@@ -570,87 +548,28 @@ export class Renderer {
   }
 
   private renderEditorToolbar(snapshot: GameSnapshot, toolbarY: number): void {
-    this.editToolBoxes = [];
     this.editRotateButton = null;
     const screen = this.screenRect();
-    const tools: Array<"cell" | PieceKind> = ["cell", "I", "O", "T", "L", "J", "S", "Z"];
-    const gap = 4;
-    // 동적 크기: 8 도구가 화면에 들어가도록 계산 (28 ~ 48 범위)
-    const usableW = screen.width - 24; // 좌우 12px 여백
-    const computed = Math.floor((usableW - (tools.length - 1) * gap) / tools.length);
-    const boxSize = Math.max(28, Math.min(48, computed));
-    const totalW = tools.length * boxSize + (tools.length - 1) * gap;
-    const startX = screen.x + (screen.width - totalW) / 2;
-
-    for (let i = 0; i < tools.length; i += 1) {
-      const tool = tools[i];
-      const bx = startX + i * (boxSize + gap);
-      const by = toolbarY;
-      this.editToolBoxes.push({ x: bx, y: by, w: boxSize, h: boxSize, tool });
-
-      const isSelected = tool === snapshot.editTool;
-
-      // 카드 배경
-      this.ctx.fillStyle = resolveCssVar(TOKENS.bgPanel);
-      this.ctx.fillRect(bx, by, boxSize, boxSize);
-
-      if (tool === "cell") {
-        // 셀 모드: 가운데 작은 사각형
-        this.ctx.fillStyle = resolveCssVar(TOKENS.ink);
-        const dotSize = 6;
-        this.ctx.fillRect(bx + boxSize / 2 - dotSize / 2, by + boxSize / 2 - dotSize / 2, dotSize, dotSize);
-      } else {
-        // 피스 미니: 회전 적용 (선택된 도구만)
-        let piece = createPiece(tool);
-        if (isSelected) {
-          for (let r = 0; r < snapshot.editToolRotation; r += 1) piece = rotatePiece(piece);
-        }
-        const cells = piece.cells;
-        const minX = Math.min(...cells.map((c) => c.x));
-        const maxX = Math.max(...cells.map((c) => c.x));
-        const minY = Math.min(...cells.map((c) => c.y));
-        const maxY = Math.max(...cells.map((c) => c.y));
-        const w = maxX - minX + 1;
-        const h = maxY - minY + 1;
-        const miniSize = Math.floor(Math.min((boxSize - 8) / w, (boxSize - 8) / h));
-        const offsetX = bx + (boxSize - w * miniSize) / 2;
-        const offsetY = by + (boxSize - h * miniSize) / 2;
-        const colors = PIECE_COLORS[tool];
-        cells.forEach((c) => {
-          const px = offsetX + (c.x - minX) * miniSize;
-          const py = offsetY + (c.y - minY) * miniSize;
-          this.ctx.fillStyle = resolveCssVar(colors.fill);
-          this.ctx.fillRect(px, py, miniSize, miniSize);
-          this.ctx.strokeStyle = resolveCssVar(colors.stroke);
-          this.ctx.lineWidth = 1;
-          this.ctx.strokeRect(px + 0.5, py + 0.5, miniSize - 1, miniSize - 1);
-        });
-      }
-
-      // 외곽선 (선택은 굵게 + accent)
-      if (isSelected) {
-        this.pixelStroke(bx, by, boxSize, boxSize, 2, resolveCssVar(TOKENS.accent));
-      } else {
-        this.pixelStroke(bx, by, boxSize, boxSize, 1, resolveCssVar(TOKENS.ink));
-      }
-    }
-
-    // ROTATE 버튼 — 도구 줄 아래 별도 행에 가운데 정렬 (모바일 큰 터치 영역)
-    const rotateY = toolbarY + boxSize + 6;
-    const rotateSize = boxSize;
+    // 큰 ROTATE 버튼만 가운데 — 피스 종류는 큐에서 강제, 사용자 결정 = 컬럼 + 회전
+    const rotateSize = 56;
     const rotateX = screen.x + (screen.width - rotateSize) / 2;
+    const rotateY = toolbarY;
     this.editRotateButton = { x: rotateX, y: rotateY, w: rotateSize, h: rotateSize };
-    const rotateEnabled = snapshot.editTool !== "cell";
-    this.ctx.fillStyle = resolveCssVar(rotateEnabled ? TOKENS.bgPanel : TOKENS.bgScreen);
+    this.ctx.fillStyle = resolveCssVar(TOKENS.bgPanel);
     this.ctx.fillRect(rotateX, rotateY, rotateSize, rotateSize);
-    this.pixelStroke(rotateX, rotateY, rotateSize, rotateSize, 1, resolveCssVar(TOKENS.ink));
-    this.ctx.font = `bold 20px sans-serif`;
+    this.pixelStroke(rotateX, rotateY, rotateSize, rotateSize, 2, resolveCssVar(TOKENS.ink));
+    this.ctx.font = `bold 28px sans-serif`;
     this.ctx.textAlign = "center";
     this.ctx.textBaseline = "middle";
-    this.ctx.fillStyle = resolveCssVar(rotateEnabled ? TOKENS.ink : TOKENS.inkMute);
+    this.ctx.fillStyle = resolveCssVar(TOKENS.ink);
     this.ctx.fillText("↻", rotateX + rotateSize / 2, rotateY + rotateSize / 2 + 1);
+    // ROTATE 라벨
+    this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
+    this.ctx.fillStyle = resolveCssVar(TOKENS.inkSoft);
+    this.ctx.fillText("ROTATE", rotateX + rotateSize / 2, rotateY + rotateSize + 10);
     this.ctx.textAlign = "left";
     this.ctx.textBaseline = "alphabetic";
+    void snapshot;
   }
 
   private renderToast(snapshot: GameSnapshot, now: number): void {

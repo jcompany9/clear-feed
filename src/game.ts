@@ -61,7 +61,7 @@ export class Game {
   private editPieceQueue: PieceKind[] = [];
   private editSolutionEstimate = 0;
   private editAnalyzing = false;
-  private editTool: "cell" | PieceKind = "cell";
+  private editTool: PieceKind = "I";
   private editToolRotation = 0;
   private editHoverPos: { col: number; row: number } | null = null;
   private useWorker: boolean;
@@ -147,25 +147,12 @@ export class Game {
     this.editHoverPos = pos;
   }
 
-  /**
-   * 편집 모드 ghost: 현재 도구가 피스고 hover 위치 있으면 그 자리에 떨어질 셀들.
-   * 도구가 'cell'이면 단일 셀 하이라이트.
-   */
-  private computeEditGhost(): { cells: Point[]; kind: PieceKind | "cell"; valid: boolean } | null {
+  /** 편집 모드 ghost: 현재 큐 피스가 hover col 에 떨어질 안착 위치 미리보기. */
+  private computeEditGhost(): { cells: Point[]; kind: PieceKind; valid: boolean } | null {
     if (this.mode !== "editing" || this.editHoverPos === null) return null;
-    const { col, row } = this.editHoverPos;
-    if (this.editTool === "cell") {
-      // 단일 셀 하이라이트
-      return {
-        cells: [{ x: col, y: row }],
-        kind: "cell",
-        valid: col >= 0 && col < COLS && row >= 0 && row < ROWS,
-      };
-    }
-    // 피스 도구: drop-from-top — col 의 안착 위치 미리보기
+    const { col } = this.editHoverPos;
     const landed = this.computeEditDrop(col);
     if (!landed) {
-      // 컬럼 막힘 — 빈 ghost (보여줄 위치 없음)
       return { cells: [], kind: this.editTool, valid: false };
     }
     const cells = absoluteCells(landed).filter((c) => c.y >= 0 && c.y < ROWS && c.x >= 0 && c.x < COLS);
@@ -559,36 +546,19 @@ export class Game {
     }
   }
 
-  setEditTool(tool: "cell" | PieceKind): void {
-    if (this.mode !== "editing") return;
-    this.editTool = tool;
-    this.editToolRotation = 0;
-    this.sound.play("move");
-  }
-
   rotateEditTool(): void {
     if (this.mode !== "editing") return;
-    if (this.editTool === "cell") return; // 셀 모드는 회전 의미 없음
     this.editToolRotation = (this.editToolRotation + 1) % 4;
     this.sound.play("rotate");
   }
 
-  /** 에디터 배치 — 실제 테트리스 모드:
-   *  큐의 현재 피스를 col 컬럼에 떨어뜨림. 라인이 클리어되면 거부 (퍼즐 초기 상태에 부적합).
-   *  cell 도구는 legacy 토글 유지 (수동 미세 조정). */
-  editPlaceAt(col: number, row: number): void {
+  /** 에디터 배치 — 실제 테트리스: 큐의 현재 피스를 col 컬럼에 떨어뜨림.
+   *  라인이 클리어되면 거부 (퍼즐 초기 상태에 부적합). */
+  editPlaceAt(col: number, _row: number): void {
     if (this.mode !== "editing") return;
-    if (this.editTool === "cell") {
-      this.editToggleCell(col, row);
-      return;
-    }
-    // 큐의 현재 피스로 강제 (사용자가 임의 선택 못 함)
     const currentPiece = this.editPieceQueue[0];
     if (!currentPiece) return;
-    if (this.editTool !== currentPiece) {
-      this.editTool = currentPiece;  // 동기화
-      this.editToolRotation = 0;
-    }
+    this.editTool = currentPiece;  // 큐와 항상 동기화
     const landed = this.computeEditDrop(col);
     if (!landed) {
       this.flashToast("BLOCKED — TRY ANOTHER COLUMN");
@@ -597,15 +567,13 @@ export class Game {
       return;
     }
     const cells = absoluteCells(landed);
-    // 시뮬레이션: 가상으로 배치 후 라인 클리어 발생 여부 검사
-    const wouldClear = this.simulateLineClearAfterPlace(cells);
-    if (wouldClear) {
+    if (this.simulateLineClearAfterPlace(cells)) {
       this.flashToast("LINE CLEAR — INVALID FOR PUZZLE");
       this.animation.editShake = 1;
       this.sound.play("fail");
       return;
     }
-    // OK — 실제 배치
+    // 실제 배치
     for (const cell of cells) {
       if (cell.y >= 0 && cell.y < ROWS && cell.x >= 0 && cell.x < COLS) {
         this.editGrid[cell.y][cell.x] = currentPiece as Cell;
@@ -619,7 +587,6 @@ export class Game {
     this.editFoundQueue = null;
     this.editStatus = "idle";
     this.sound.play("land");
-    // 비동기 분석 (셀이 충분할 때만 — 비싼 작업)
     this.runEditAnalysisAsync();
   }
 
@@ -667,7 +634,7 @@ export class Game {
   /** 편집 보드에서 현재 도구(piece)를 col 컬럼에 떨어뜨릴 때 안착 위치 반환.
    *  도구가 cell 이거나 어떤 위치에서도 못 놓이면 null. */
   private computeEditDrop(col: number): Piece | null {
-    if (this.mode !== "editing" || this.editTool === "cell") return null;
+    if (this.mode !== "editing") return null;
     let piece = createPiece(this.editTool);
     for (let i = 0; i < this.editToolRotation; i += 1) piece = rotatePiece(piece);
     piece = { ...piece, x: col, y: -2 };
@@ -689,15 +656,14 @@ export class Game {
     });
   }
 
-  /** 편집 보드의 (x, y) 셀 토글 (빈 ↔ "garbage") */
+  /** 내부/테스트용 셀 토글. UI 에선 노출 안 함 (real-tetris 모드는 drop 만 사용).
+   *  테스트에서 정확한 보드 상태 셋업용으로 유지. */
   editToggleCell(x: number, y: number): void {
     if (this.mode !== "editing") return;
     if (x < 0 || x >= COLS || y < 0 || y >= ROWS) return;
     this.editGrid[y][x] = this.editGrid[y][x] === null ? ("garbage" as Cell) : null;
-    // 보드가 바뀌면 이전 결과 무효화
     this.editFoundQueue = null;
     this.editStatus = "idle";
-    this.sound.play("move");
   }
 
   setEditQueueLength(delta: number): void {

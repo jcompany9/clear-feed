@@ -378,7 +378,7 @@ describe("Editor — enterEditor / exitEditor", () => {
   it("exitEditor returns to feed and clears state", () => {
     const game = makeGame();
     game.enterEditor();
-    game.editToggleCell(3, 19);
+    game.editPlaceAt(3, 0);  // drop a piece (drop-from-top)
     game.exitEditor();
     expect(game.snapshot.mode).toBe("feed");
     expect(game.snapshot.editGrid).toEqual([]);
@@ -397,14 +397,7 @@ describe("Editor — tool selection & piece placement", () => {
     expect(game.snapshot.editToolRotation).toBe(0);
   });
 
-  it("setEditTool('cell') switches to legacy toggle mode", () => {
-    const game = makeGame();
-    game.enterEditor();
-    game.setEditTool("cell");
-    expect(game.snapshot.editTool).toBe("cell");
-  });
-
-  it("rotateEditTool cycles 0→1→2→3→0 for piece tools", () => {
+  it("rotateEditTool cycles 0→1→2→3→0", () => {
     const game = makeGame();
     game.enterEditor();
     expect(game.snapshot.editToolRotation).toBe(0);
@@ -416,58 +409,37 @@ describe("Editor — tool selection & piece placement", () => {
     expect(game.snapshot.editToolRotation).toBe(0);
   });
 
-  it("rotateEditTool is no-op when tool is 'cell'", () => {
-    const game = makeGame();
-    game.enterEditor();
-    game.setEditTool("cell");
-    game.rotateEditTool();
-    expect(game.snapshot.editToolRotation).toBe(0);
-  });
-
   it("editPlaceAt drops queue's current piece from top (real-tetris)", () => {
     const game = makeGame();
     game.enterEditor();
     const currentPiece = game.snapshot.editPieceQueue[0];
-    game.editPlaceAt(4, 10);  // row 인자 무시 — drop
-    // 어떤 피스든 바닥 어디엔가 안착했어야 함
+    game.editPlaceAt(4, 10);
     const filled = game.snapshot.editGrid.flat().filter((c) => c !== null);
     expect(filled.length).toBeGreaterThan(0);
-    // 모두 같은 피스 색상
     expect(filled.every((c) => c === currentPiece)).toBe(true);
-    // 큐가 한 칸 진행됨
     expect(game.snapshot.editPieceQueue[0]).not.toBe(currentPiece);
   });
 
-  it("editPlaceAt with cell tool toggles a single cell (legacy behavior)", () => {
+  it("editPlaceAt rejects placement when it would clear a line (cells unchanged + shake)", () => {
     const game = makeGame();
     game.enterEditor();
-    game.setEditTool("cell");
-    game.editPlaceAt(3, 19);
-    expect(game.snapshot.editGrid[19][3]).toBe("garbage");
-    game.editPlaceAt(3, 19);
-    expect(game.snapshot.editGrid[19][3]).toBeNull();
-  });
-
-  it("editPlaceAt rejects placement when it would clear a line", () => {
-    const game = makeGame();
-    game.enterEditor();
-    // row 19 거의 꽉 차게 수동 채움 (cell 도구로) — gap 2칸만 남김
-    game.setEditTool("cell");
+    // row 19 cells via test toggle helper — 8칸 채워서 2칸만 비움
     for (let x = 0; x < 10; x += 1) {
-      if (x !== 4 && x !== 5) game.editPlaceAt(x, 19);
+      if (x !== 4 && x !== 5) game.editToggleCell(x, 19);
     }
-    // O 가 바닥에 떨어지면 row 19 가 가득 참 → 라인 클리어 → 거부
-    // 큐에서 O 를 찾을 때까지 spinFool — 사실 그냥 setEditTool("O") 로 강제
-    game.setEditTool("O");
-    // 큐를 강제로 O 로 시작하도록 진행 (테스트 환경)
-    // 실제론 큐가 랜덤이니, 거부 동작만 확인 — 시도해서 라인 형성되면 거부됨
     const beforeFilled = game.snapshot.editGrid.flat().filter((c) => c !== null).length;
+    expect(beforeFilled).toBe(8);
+    // 어떤 피스든 col 4 에 떨어뜨릴 때, 만약 row 19 채우면 거부됨
+    // 결과: 거부 시 셀 수 그대로 + editShake > 0; 허용 시 셀 수 증가
     game.editPlaceAt(4, 10);
-    // 결과: 큐 피스가 row 19 의 4,5 컬럼에 떨어지면 라인 클리어 → 거부
-    // 또는 다른 컬럼에 떨어지면 정상 배치
-    // 어떤 경우든 셀 수가 그대로(거부) 또는 +4(배치)
-    const afterFilled = game.snapshot.editGrid.flat().filter((c) => c !== null).length;
-    expect([beforeFilled, beforeFilled + 4]).toContain(afterFilled);
+    const after = game.snapshot.editGrid.flat().filter((c) => c !== null).length;
+    if (after === beforeFilled) {
+      // 거부됨 → shake 발동
+      expect(game.snapshot.animation.editShake).toBeGreaterThan(0);
+    } else {
+      // 허용됨 → shake 없음 (다른 컬럼/회전이거나 라인 안 차는 위치)
+      expect(after).toBeGreaterThan(beforeFilled);
+    }
   });
 
   it("editPlaceAt placing same column twice stacks", () => {
@@ -554,36 +526,29 @@ describe("Editor — generateEditedPuzzle", () => {
   it("rejects mathematically infeasible queue length with 'TRY Q=' toast", () => {
     const game = makeGame();
     game.enterEditor();
-    // 16 cells (4 tetrominoes), queue=5 → 16+20=36, not divisible by 10
-    game.setEditTool("I");
-    game.editPlaceAt(2, 14);
-    game.setEditTool("O");
-    game.editPlaceAt(6, 13);
-    game.setEditTool("T");
-    game.editPlaceAt(2, 16);
-    game.setEditTool("J");
-    game.editPlaceAt(6, 16);
+    // 16 cells via cell-toggle (test helper) — queue=5 → 16+20=36, not divisible by 10
+    for (let i = 0; i < 16; i += 1) {
+      const x = i % 8;
+      const y = 19 - Math.floor(i / 8);
+      game.editToggleCell(x, y);
+    }
     expect(game.snapshot.editGrid.flat().filter((c) => c !== null).length).toBe(16);
     expect(game.snapshot.editQueueLength).toBe(5);
     game.generateEditedPuzzle();
     expect(game.snapshot.editStatus).toBe("no-solution");
-    // toast should suggest valid queue lengths
     expect(game.snapshot.animation.toast).toMatch(/TRY Q=/);
   });
 
   it("editFeasibleLengths reflects (cellCount + 4*q) % 10 === 0", () => {
     const game = makeGame();
     game.enterEditor();
-    expect(game.snapshot.editFeasibleLengths).toEqual([]); // empty board
+    expect(game.snapshot.editFeasibleLengths).toEqual([]);
     // 16 cells: valid q in 1..10 = {1, 6}
-    game.setEditTool("I");
-    game.editPlaceAt(2, 14);
-    game.setEditTool("O");
-    game.editPlaceAt(6, 13);
-    game.setEditTool("T");
-    game.editPlaceAt(2, 16);
-    game.setEditTool("J");
-    game.editPlaceAt(6, 16);
+    for (let i = 0; i < 16; i += 1) {
+      const x = i % 8;
+      const y = 19 - Math.floor(i / 8);
+      game.editToggleCell(x, y);
+    }
     expect(game.snapshot.editFeasibleLengths).toEqual([1, 6]);
   });
 

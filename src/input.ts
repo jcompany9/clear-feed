@@ -116,7 +116,7 @@ export class InputController {
       }
     } else if (mode === "editing") {
       if (isTap) {
-        // 우선순위: FINISH > ROTATE > 툴바 > 보드 셀
+        // 우선순위: FINISH > ROTATE > 보드 셀(=컬럼 drop)
         if (this.renderer.isFinishButton(event.clientX, event.clientY)) {
           const status = this.game.snapshot.editStatus;
           if (status === "ready") {
@@ -127,17 +127,8 @@ export class InputController {
         } else if (this.renderer.isEditRotateButton(event.clientX, event.clientY)) {
           this.game.rotateEditTool();
         } else {
-          const tool = this.renderer.screenToTool(event.clientX, event.clientY);
-          if (tool !== null) {
-            if (tool === this.game.snapshot.editTool && tool !== "cell") {
-              this.game.rotateEditTool();
-            } else {
-              this.game.setEditTool(tool);
-            }
-          } else {
-            const cell = this.renderer.screenToCell(event.clientX, event.clientY);
-            if (cell) this.game.editPlaceAt(cell.col, cell.row);
-          }
+          const cell = this.renderer.screenToCell(event.clientX, event.clientY);
+          if (cell) this.game.editPlaceAt(cell.col, cell.row);
         }
       }
       if (event.pointerType === "touch") {
