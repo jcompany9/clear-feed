@@ -506,21 +506,35 @@ export class Renderer {
   }
 
   private renderEditorQueue(snapshot: GameSnapshot, x: number, y: number): void {
-    const queue = snapshot.editPieceQueue.slice(0, 3);
+    // status === "ready" 면 AI 가 찾아낸 풀이 큐를 강조 표시 (생성블록 = 플레이 큐)
+    const ready = snapshot.editStatus === "ready" && snapshot.editFoundQueue;
+    const isReady = !!ready;
+    const queue = isReady
+      ? snapshot.editFoundQueue!
+      : snapshot.editPieceQueue.slice(0, 3);
     if (queue.length === 0) return;
-    const slotSize = 28;
+    const slotSize = isReady ? 36 : 28;
     const gap = 4;
     this.ctx.save();
     this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
-    this.ctx.fillStyle = resolveCssVar(TOKENS.inkSoft);
     this.ctx.textAlign = "left";
     this.ctx.textBaseline = "alphabetic";
-    this.ctx.fillText("NEXT", x, y - 4);
+    if (isReady) {
+      this.ctx.fillStyle = resolveCssVar(TOKENS.success);
+      this.ctx.fillText("PLAY QUEUE ▶", x, y - 4);
+    } else {
+      this.ctx.fillStyle = resolveCssVar(TOKENS.inkSoft);
+      this.ctx.fillText("NEXT", x, y - 4);
+    }
     queue.forEach((kind, i) => {
       const sy = y + i * (slotSize + gap);
-      this.ctx.fillStyle = resolveCssVar(i === 0 ? TOKENS.bgPanel : TOKENS.bgScreen);
+      this.ctx.fillStyle = resolveCssVar(isReady || i === 0 ? TOKENS.bgPanel : TOKENS.bgScreen);
       this.ctx.fillRect(x, sy, slotSize, slotSize);
-      this.pixelStroke(x, sy, slotSize, slotSize, i === 0 ? 2 : 1, resolveCssVar(i === 0 ? TOKENS.accent : TOKENS.ink));
+      this.pixelStroke(
+        x, sy, slotSize, slotSize,
+        isReady ? 2 : (i === 0 ? 2 : 1),
+        resolveCssVar(isReady ? TOKENS.success : (i === 0 ? TOKENS.accent : TOKENS.ink)),
+      );
       // 미니 piece
       const piece = createPiece(kind);
       const cells = piece.cells;
@@ -538,6 +552,13 @@ export class Renderer {
         this.ctx.fillStyle = resolveCssVar(colors.fill);
         this.ctx.fillRect(offX + (c.x - minX) * mini, offY + (c.y - minY) * mini, mini, mini);
       });
+      // 순번 (READY 일 때만)
+      if (isReady) {
+        this.ctx.font = `bold 9px ${FONT_MONO_BASE}`;
+        this.ctx.fillStyle = resolveCssVar(TOKENS.ink);
+        this.ctx.fillText(String(i + 1), x + 2, sy + 10);
+        this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
+      }
     });
     this.ctx.restore();
     this.ctx.textAlign = "left";
