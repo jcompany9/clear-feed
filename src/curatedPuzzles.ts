@@ -50,6 +50,23 @@ export const CURATED_PUZZLES: CuratedPuzzleSpec[] = [
     targetLines: 0,  // 타겟 미션은 targetLines 0 (사용 안 함)
     difficulty: "Easy",
   },
+  // Perfect Clear 미션 — 타겟 없음 + targetLines 0 → 보드 0블록이 목표
+  // row 19: 6칸 채움 + 4칸 빈. I-piece 가로로 빈 4칸 채움 → 1라인 클리어 → 보드 비움 ✓
+  {
+    name: "pc-warmup-i",
+    rowsFromBottom: ["######...."],
+    queue: ["I"],
+    targetLines: 0,
+    difficulty: "Easy",
+  },
+  // Perfect Clear (2피스) — 두 줄 모두 4칸씩 비움. I 두 개로 각 줄 채우면 2라인 클리어 → 보드 0 ✓
+  {
+    name: "pc-double-i",
+    rowsFromBottom: ["######....", "....######"],
+    queue: ["I", "I"],
+    targetLines: 0,
+    difficulty: "Easy",
+  },
 ];
 
 /** 큐레이션 spec 을 게임의 Puzzle 형식으로 변환 */
