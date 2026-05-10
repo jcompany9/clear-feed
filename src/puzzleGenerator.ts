@@ -1,5 +1,5 @@
-import { COLS, ROWS, type Cell, type Difficulty, type PieceKind, type Puzzle } from "./gameTypes";
-import { PIECES } from "./pieces";
+import { COLS, ROWS, type Cell, type Difficulty, type Piece, type PieceKind, type Puzzle } from "./gameTypes";
+import { PIECES, absoluteCells, createPiece, rotatePiece } from "./pieces";
 import { analyze, findSolvableQueue, solve } from "./solver";
 
 type TemplateName = "near-line" | "center-slot" | "stairs" | "side-weight" | "repair";
@@ -703,6 +703,92 @@ function emptyGrid(): Cell[][] {
 
 function randomBlock(rng: Rng): Cell {
   return rng.pick(["I", "O", "T", "L", "J", "S", "Z"] as PieceKind[]);
+}
+
+/**
+ * 랜덤 테트로미노 떨어뜨려 보드 생성 + 솔버로 perfect-clear 큐 검색.
+ * EasyPattern (직선 행) 보다 자연스럽고 복잡한 보드 모양.
+ *
+ * 흐름: 빈 보드 → 5~9개 무작위 피스 (kind, rotation, col) drop →
+ *      매번 라인 클리어 → 셀 수에 맞는 큐 길이 후보로 솔버 호출.
+ * 풀이 가능한 큐 발견 시 puzzle 반환, 아니면 null (호출자 폴백).
+ */
+export function buildRandomDroppedBoardPuzzle(seed: number): Puzzle | null {
+  const rng = createRng(seed);
+  const grid = emptyGrid();
+
+  const dropCount = rng.int(15, 25);
+  for (let i = 0; i < dropCount; i += 1) {
+    const kind = rng.pick(PIECES);
+    const rotation = rng.int(0, 3);
+    const col = rng.int(0, COLS - 1);
+    dropPieceToBoard(grid, kind, rotation, col);
+    clearFullLines(grid);
+  }
+
+  const cells = countNonWallCells(grid);
+  if (cells === 0) return null;  // 다 클리어됨 → 빈 보드, 의미 없음
+
+  // (cells + 4q) % 10 === 0 만족하는 q 후보 (1~10)
+  const lengths: number[] = [];
+  for (let q = 1; q <= 10; q += 1) {
+    if ((cells + q * 4) % 10 === 0) lengths.push(q);
+  }
+  if (lengths.length === 0) return null;
+
+  for (const q of lengths) {
+    const found = findSolvableQueue(grid, q, 30, () => rng.next(), 50000, 0);
+    if (found) {
+      return {
+        seed,
+        template: "near-line",
+        difficulty: "Normal",
+        grid,
+        queue: found.queue,
+        targetLines: 0,
+        movesLimit: found.queue.length,
+      };
+    }
+  }
+  return null;
+}
+
+/** 빈 grid 에 piece 를 col 위치로 떨어뜨려 garbage 셀로 잠금. 못 두면 무시.
+ *  col 은 회전된 piece 의 가로 범위에 맞춰 클램프 (boundary 벗어남 방지). */
+function dropPieceToBoard(grid: Cell[][], kind: PieceKind, rotation: number, col: number): void {
+  let piece: Piece = createPiece(kind);
+  for (let r = 0; r < rotation % 4; r += 1) piece = rotatePiece(piece);
+  const minRelX = Math.min(...piece.cells.map((c) => c.x));
+  const maxRelX = Math.max(...piece.cells.map((c) => c.x));
+  const minRelY = Math.min(...piece.cells.map((c) => c.y));
+  const safeCol = Math.max(-minRelX, Math.min(COLS - 1 - maxRelX, col));
+  piece = { ...piece, x: safeCol, y: -minRelY };  // 가장 위 셀이 y=0 에 위치
+  if (!canPlacePiece(grid, piece)) return;
+  while (canPlacePiece(grid, { ...piece, y: piece.y + 1 })) {
+    piece = { ...piece, y: piece.y + 1 };
+  }
+  for (const c of absoluteCells(piece)) {
+    if (c.y >= 0 && c.y < ROWS && c.x >= 0 && c.x < COLS) grid[c.y][c.x] = "garbage";
+  }
+}
+
+function canPlacePiece(grid: Cell[][], piece: Piece): boolean {
+  for (const c of absoluteCells(piece)) {
+    if (c.x < 0 || c.x >= COLS || c.y < 0 || c.y >= ROWS) return false;
+    if (grid[c.y][c.x] !== null) return false;
+  }
+  return true;
+}
+
+function clearFullLines(grid: Cell[][]): void {
+  const fullRows: number[] = [];
+  for (let y = 0; y < ROWS; y += 1) {
+    if (grid[y].every((c) => c !== null)) fullRows.push(y);
+  }
+  if (fullRows.length === 0) return;
+  const kept = grid.filter((_, y) => !fullRows.includes(y));
+  while (kept.length < ROWS) kept.unshift(Array.from({ length: COLS }, () => null as Cell));
+  for (let y = 0; y < ROWS; y += 1) grid[y] = kept[y];
 }
 
 function createRng(seed: number): Rng {
