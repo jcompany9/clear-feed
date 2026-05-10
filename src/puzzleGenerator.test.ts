@@ -18,20 +18,20 @@ describe("createFeedPuzzle", () => {
     }
   });
 
-  it("targetLines achievable by total cells (cells + 4*moves >= 10*targetLines)", () => {
+  it("perfect-clear feasible: (cells + 4*moves) % 10 === 0", () => {
     for (const seed of [1, 7, 42, 1024, 99999]) {
       const puzzle = createFeedPuzzle(seed);
       const cells = puzzle.grid.flat().filter((c) => c !== null && c !== "wall").length;
       const total = cells + puzzle.movesLimit * 4;
-      expect(total).toBeGreaterThanOrEqual(puzzle.targetLines * 10);
+      // 보드 + 큐 셀이 정확히 라인 N개로 떨어져야 perfect-clear 가능
+      expect(total % 10).toBe(0);
     }
   });
 
-  it("targetLines is in [1, 6]", () => {
+  it("targetLines === 0 (perfect-clear identity — eval is isEmpty)", () => {
     for (let seed = 0; seed < 50; seed += 1) {
       const puzzle = createFeedPuzzle(seed);
-      expect(puzzle.targetLines).toBeGreaterThanOrEqual(1);
-      expect(puzzle.targetLines).toBeLessThanOrEqual(6);
+      expect(puzzle.targetLines).toBe(0);
     }
   });
 

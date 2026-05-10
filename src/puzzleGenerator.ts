@@ -47,15 +47,17 @@ export function createFeedPuzzle(seed: number, challenge = false, fast = false):
  */
 function buildConstructedEasy(seed: number, rng: Rng): Puzzle {
   const pattern = pickEasyPattern(rng);
-  const { grid, queue, targetLines } = pattern(rng);
+  const { grid, queue } = pattern(rng);
+  // perfect-clear 가능성 보장 — (cells + 4q) % 10 === 0 으로 큐 길이 보정
+  const adjusted = adjustQueueForMath(grid, queue, queue.length, rng);
   return {
     seed,
     template: "near-line",
     difficulty: "Easy",
     grid,
-    queue,
-    targetLines,
-    movesLimit: queue.length,
+    queue: adjusted.queue,
+    targetLines: 0,
+    movesLimit: adjusted.queue.length,
   };
 }
 
@@ -166,15 +168,16 @@ const easy4Row3GapJOIO: EasyPattern = (rng) => {
  */
 function buildConstructedNormal(seed: number, rng: Rng): Puzzle {
   const pattern = pickNormalPattern(rng);
-  const { grid, queue, targetLines } = pattern(rng);
+  const { grid, queue } = pattern(rng);
+  const adjusted = adjustQueueForMath(grid, queue, queue.length, rng);
   return {
     seed,
     template: "near-line",
     difficulty: "Normal",
     grid,
-    queue,
-    targetLines,
-    movesLimit: queue.length,
+    queue: adjusted.queue,
+    targetLines: 0,
+    movesLimit: adjusted.queue.length,
   };
 }
 
@@ -274,28 +277,25 @@ function buildOnePuzzle(seed: number, challenge: boolean, rng: Rng): { puzzle: P
 
   const adjusted = adjustQueueForMath(grid, queue, movesLimit, rng);
 
-  const cellCount = countNonWallCells(grid);
-  const totalCells = cellCount + adjusted.length * 4;
-  const targetLines = totalCells > 0 && totalCells % 10 === 0 ? totalCells / 10 : intendedTarget;
-
+  // perfect-clear 정체성 — 평가는 isEmpty. 솔버 검증도 perfect-clear 모드 (targetLines=0).
+  // 솔버: target===0 이면 큐 다 써서 보드 비워야 solvable.
+  // adjustQueueForMath 가 (cells + 4q) % 10 === 0 보장하므로 perfect-clear 후보 존재.
   let verified = SKIP_SOLVER_VERIFY;
   let finalQueue = adjusted.queue;
   let difficulty: Difficulty = initialDifficulty;
 
   if (!SKIP_SOLVER_VERIFY) {
-    const solvableQueue = ensureSolvable(grid, adjusted.queue, adjusted.length, targetLines, rng);
+    const solvableQueue = ensureSolvable(grid, adjusted.queue, adjusted.length, 0, rng);
     if (solvableQueue) {
       // 엄격 필터: solutionCount ≤ 2 만 통과. 3+ = 너그러운 퍼즐 거부.
       const probe: Puzzle = {
         seed: 0, template: "near-line", difficulty: initialDifficulty,
-        grid, queue: solvableQueue, targetLines, movesLimit: solvableQueue.length,
+        grid, queue: solvableQueue, targetLines: 0, movesLimit: solvableQueue.length,
       };
       const analysis = analyze(probe, 3, 6000);  // cap=3 (3+ 찾으면 reject)
       if (!analysis.truncated && analysis.solutionCount > 0 && !analysis.capped) {
-        // 합격: solutionCount in [1, 2]
         finalQueue = solvableQueue;
         verified = true;
-        // 1 solution = Challenge, 2 = Normal
         difficulty = analysis.solutionCount === 1 ? "Challenge" : "Normal";
       }
     }
@@ -308,7 +308,7 @@ function buildOnePuzzle(seed: number, challenge: boolean, rng: Rng): { puzzle: P
       difficulty,
       grid,
       queue: finalQueue,
-      targetLines,
+      targetLines: 0,
       movesLimit: finalQueue.length,
     },
     verified,

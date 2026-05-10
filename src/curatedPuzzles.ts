@@ -32,12 +32,12 @@ export interface CuratedPuzzleSpec {
  * 비어있으면 무작위 fallback (game.ts 가 폴백 처리).
  */
 export const CURATED_PUZZLES: CuratedPuzzleSpec[] = [
-  // 라인 미션 예제 — row 19 4-gap + I-piece 1개로 1 라인 클리어
+  // Perfect-clear 워밍업 — row 19 4-gap + I-piece 1개로 1 라인 = 0 블록
   {
     name: "warmup-i-gap",
     rowsFromBottom: ["###....###"],
     queue: ["I"],
-    targetLines: 1,
+    targetLines: 0,
     difficulty: "Easy",
   },
   // 타겟 미션 예제 — 주황 셀 2개를 클리어 (라인 만들면서)
