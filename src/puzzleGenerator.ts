@@ -28,9 +28,10 @@ export function createFeedPuzzle(seed: number, challenge = false, fast = false):
   }
 
   // fast 모드 (initial feed) — random/chaos 스킵, 즉시 constructed 반환.
-  // 95% random + 유일해 필터. 3 회 시도 — chaos grid 가 무거우므로 retries 줄임.
+  // 95% random + 유일해 필터. 시도 횟수 ↑ (3→6) — Challenge (solutionCount=1) 통과율 ↑.
+  // 폴백 (constructed) 비율 ↓ → 단조로움 ↓, 평균 난이도 ↑.
   if (!fast && !SKIP_SOLVER_VERIFY && rng.next() < 0.95) {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
       const built = buildOnePuzzle(seed, false, rng);
       if (built.verified) return built.puzzle;
     }
@@ -418,11 +419,13 @@ function adjustQueueForMath(grid: Cell[][], queue: PieceKind[], originalLimit: n
     // 안전장치 — 짝수 보정 후엔 거의 도달 불가 (cells가 0인 경우 등)
     return { queue, length: originalLimit };
   }
-  // 원래 movesLimit과 가장 가까운 후보 선택 (사용자 체감 난이도 유지)
-  let best = candidates[0];
-  for (const c of candidates) {
-    if (Math.abs(c - originalLimit) < Math.abs(best - originalLimit)) best = c;
-  }
+  // 큐 길이는 가장 긴 후보 (≤ 7) 선호 — 사고 깊이 ↑ 로 난이도 강화.
+  // 7 이상은 솔버 검증 시간 폭증 + 사용자 인내 한계 → 상한.
+  const cap = 7;
+  const eligible = candidates.filter((c) => c <= cap);
+  const pool = eligible.length > 0 ? eligible : candidates;
+  const best = pool[pool.length - 1];
+  void originalLimit;
   // 큐 길이를 best로 맞춤 (자르거나 늘림)
   const adjusted = [...queue];
   if (adjusted.length > best) {
