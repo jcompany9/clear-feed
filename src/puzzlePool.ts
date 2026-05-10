@@ -4,7 +4,7 @@
  */
 import type { Puzzle } from "./gameTypes";
 
-const TARGET_SIZE = 8;      // 풀 크기 (chaos 생성 무거우니 적당히)
+const TARGET_SIZE = 5;      // 풀 크기 — 5개 random rotation 테스트 (사용자 요청)
 const MAX_INFLIGHT = 2;     // 동시 생성 요청 한도 (워커 1개 + 큐)
 
 export class PuzzlePool {
@@ -26,11 +26,13 @@ export class PuzzlePool {
     }
   }
 
-  /** 풀에서 퍼즐 1개 꺼냄. 비어있으면 null (호출측이 sync 폴백) */
+  /** 풀에서 퍼즐 1개를 무작위로 꺼냄. 비어있으면 null (호출측이 sync 폴백) */
   pop(): Puzzle | null {
-    const p = this.pool.shift() ?? null;
+    if (this.pool.length === 0) return null;
+    const idx = Math.floor(Math.random() * this.pool.length);
+    const [p] = this.pool.splice(idx, 1);
     this.refill();  // 즉시 백그라운드 채움
-    return p;
+    return p ?? null;
   }
 
   /** 현재 풀 사이즈 (디버그용) */
