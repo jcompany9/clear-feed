@@ -28,10 +28,10 @@ export function createFeedPuzzle(seed: number, challenge = false, fast = false):
   }
 
   // fast 모드 (initial feed) — random/chaos 스킵, 즉시 constructed 반환.
-  // 95% random + 유일해 필터. 시도 횟수 ↑ (3→6) — Challenge (solutionCount=1) 통과율 ↑.
-  // 폴백 (constructed) 비율 ↓ → 단조로움 ↓, 평균 난이도 ↑.
-  if (!fast && !SKIP_SOLVER_VERIFY && rng.next() < 0.95) {
-    for (let attempt = 0; attempt < 6; attempt += 1) {
+  // 99% random + 유일해 필터. attempts 10 — chaos grid (도전적) 비율 ↑.
+  // 사용자 도전을 우선 — constructed (단순 패턴) 폴백 비율 ↓.
+  if (!fast && !SKIP_SOLVER_VERIFY && rng.next() < 0.99) {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
       const built = buildOnePuzzle(seed, false, rng);
       if (built.verified) return built.puzzle;
     }
@@ -199,29 +199,32 @@ function buildConstructedNormal(seed: number, rng: Rng): Puzzle {
 }
 
 /**
- * 확정 풀이 가능한 perfect-clear 폴백 — row 19 6칸 채움 + I 1개로 1라인.
- * 다른 모든 polback 이 unsolvable 일 때 사용자에게 풀 수 있는 퍼즐 보장.
- * 셀은 7종 PieceKind 중 random (단색 garbage 가 아닌 GBC 7색).
+ * 확정 풀이 가능한 perfect-clear 폴백 — 5-row 4-gap well + I 5개로 5 라인 동시 클리어.
+ * 1-piece 안전 폴백은 너무 시시해서 사용자 도전을 망치므로, 최악의 경우에도 5-piece +
+ * 사고 깊이를 강제. I-piece 가로 5번 정확히 같은 위치에 떨어뜨려야 하므로 mindless
+ * 클리어가 아니다.
  */
 function safePerfectClearFallback(seed: number, difficulty: Difficulty): Puzzle {
   const rng = createRng(seed);
   const grid: Cell[][] = Array.from({ length: ROWS }, () =>
     Array.from({ length: COLS }, () => null as Cell),
   );
-  // row 19: ###....### (3+4+3) → I-piece 가로로 가운데 4칸 채우면 1라인 클리어 → 0 블록
-  const fill: Cell[] = [
-    randomBlock(rng), randomBlock(rng), randomBlock(rng), null, null, null, null,
-    randomBlock(rng), randomBlock(rng), randomBlock(rng),
-  ];
-  grid[ROWS - 1] = fill;
+  // 5 rows × ###....### (3+4+3 = 6 cells) — I-piece 가로로 가운데 4칸 채우면 라인 클리어
+  for (let r = 0; r < 5; r += 1) {
+    const y = ROWS - 1 - r;
+    grid[y] = [
+      randomBlock(rng), randomBlock(rng), randomBlock(rng), null, null, null, null,
+      randomBlock(rng), randomBlock(rng), randomBlock(rng),
+    ];
+  }
   return {
     seed,
     template: "near-line",
     difficulty,
     grid,
-    queue: ["I"],
+    queue: ["I", "I", "I", "I", "I"],
     targetLines: 0,
-    movesLimit: 1,
+    movesLimit: 5,
   };
 }
 
