@@ -5,7 +5,7 @@ export type PieceKind = "I" | "O" | "T" | "L" | "J" | "S" | "Z";
 export type Difficulty = "Easy" | "Normal" | "Hard" | "Challenge";
 export type GameMode = "feed" | "planning" | "clear" | "failed" | "editing";
 
-export type Cell = PieceKind | "garbage" | "wall" | null;
+export type Cell = PieceKind | "garbage" | "wall" | "target" | null;
 
 export interface Point {
   x: number;
@@ -69,6 +69,10 @@ export interface GameSnapshot {
   queueIndex: number;                // 다음 떨어뜨릴 큐 인덱스
   ghostCells: Point[] | null;        // 현재 피스가 떨어질 안착 위치
   pressedControl: string | null;     // 현재 누름 중인 컨트롤 버튼 ("left"|"right"|"rotate"|"down"|"hardDrop")
+  // 타겟 미션 (퍼즐 초기 보드에 "target" 셀이 있으면 활성)
+  isTargetMission: boolean;          // true = 타겟 모두 클리어 미션
+  targetsTotal: number;              // 시작 시 타겟 셀 총 개수 (X/Y 표시용)
+  targetsLeft: number;               // 현재 남은 타겟 셀 수
 
   // Editing 모드 전용 (UGC 에디터)
   editGrid: Cell[][];                // 사용자 디자인 보드

@@ -732,19 +732,29 @@ export class Renderer {
       this.retryButton = null;
     }
 
-    // 좌: LINES X/Y (목표 진행도) — planning 모드면 quit 버튼 폭만큼 우측으로 시프트
+    // 좌: 미션 진행도 — 타겟 미션이면 TARGETS X/Y, 아니면 LINES X/Y
     const leftShift = snapshot.mode === "planning" ? 36 : 10;
     const rightShift = snapshot.mode === "planning" ? 36 : 10;
     this.ctx.font = `9px ${FONT_PIXEL_BASE}`;
     this.ctx.fillStyle = resolveCssVar(TOKENS.inkSoft);
     this.ctx.textAlign = "left";
-    this.ctx.fillText("LINES", screen.x + leftShift, rowY);
-    this.ctx.font = `bold 13px ${FONT_MONO_BASE}`;
-    this.ctx.fillStyle = target > 0 && cleared >= target
-      ? resolveCssVar(TOKENS.success)
-      : resolveCssVar(TOKENS.ink);
-    const linesText = target > 0 ? `${cleared}/${target}` : `${cleared}`;
-    this.ctx.fillText(linesText, screen.x + leftShift + 38, rowY);
+    if (snapshot.isTargetMission) {
+      this.ctx.fillText("TARGETS", screen.x + leftShift, rowY);
+      this.ctx.font = `bold 13px ${FONT_MONO_BASE}`;
+      const done = snapshot.targetsTotal - snapshot.targetsLeft;
+      this.ctx.fillStyle = snapshot.targetsLeft === 0
+        ? resolveCssVar(TOKENS.success)
+        : resolveCssVar(TOKENS.accent);
+      this.ctx.fillText(`${done}/${snapshot.targetsTotal}`, screen.x + leftShift + 50, rowY);
+    } else {
+      this.ctx.fillText("LINES", screen.x + leftShift, rowY);
+      this.ctx.font = `bold 13px ${FONT_MONO_BASE}`;
+      this.ctx.fillStyle = target > 0 && cleared >= target
+        ? resolveCssVar(TOKENS.success)
+        : resolveCssVar(TOKENS.ink);
+      const linesText = target > 0 ? `${cleared}/${target}` : `${cleared}`;
+      this.ctx.fillText(linesText, screen.x + leftShift + 38, rowY);
+    }
 
     // 중: 0/6 (라벨 생략)
     this.ctx.textAlign = "center";
@@ -768,11 +778,16 @@ export class Renderer {
     this.ctx.textAlign = "left";
   }
 
-  /** 퍼즐별 미션 문구 — puzzle.targetLines 를 직접 사용 (게임 로직과 동일 기준). */
+  /** 퍼즐별 미션 문구 — 타겟 미션 또는 라인 미션. */
   private computeMissionText(snapshot: GameSnapshot): string {
     const queueLen = snapshot.puzzle.queue.length;
-    const lines = snapshot.puzzle.targetLines;
     const diff = snapshot.puzzle.difficulty.toUpperCase();
+    if (snapshot.isTargetMission) {
+      const total = snapshot.targetsTotal;
+      const pieceLabel = queueLen === 1 ? "PIECE" : "PIECES";
+      return `▶ ${diff} · ${queueLen} ${pieceLabel} → CLEAR ${total} ORANGE`;
+    }
+    const lines = snapshot.puzzle.targetLines;
     if (lines <= 0 || queueLen === 0) return `▶ ${diff} · ${queueLen} PIECES → EMPTY THE BOARD`;
     const lineLabel = lines === 1 ? "LINE" : "LINES";
     const pieceLabel = queueLen === 1 ? "PIECE" : "PIECES";
@@ -900,7 +915,7 @@ export class Renderer {
     size: number,
     x: number,
     y: number,
-    kind: PieceKind | "garbage" | "wall",
+    kind: PieceKind | "garbage" | "wall" | "target",
     alpha: number,
     landed: boolean,
   ): void {

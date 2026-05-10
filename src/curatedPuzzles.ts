@@ -15,10 +15,13 @@
 import { COLS, ROWS, type Cell, type Difficulty, type PieceKind, type Puzzle } from "./gameTypes";
 
 export interface CuratedPuzzleSpec {
-  /** 보드 행 (바닥부터 위로). 길이 1~20. 각 행 길이 10. '#' = 채움, '.' = 빈칸 */
+  /** 보드 행 (바닥부터 위로). 각 행 길이 10.
+   *  '#' = 일반 셀 (garbage 회색)
+   *  '@' = 타겟 셀 (주황 — 클리어해야 할 미션 셀)
+   *  '.' = 빈칸 */
   rowsFromBottom: string[];
   queue: PieceKind[];
-  targetLines: number;
+  targetLines: number;       // 라인 미션 (타겟 미션이면 0 으로 두면 됨)
   difficulty: Difficulty;
   /** 디버그/검색용 라벨 (선택) */
   name?: string;
@@ -29,13 +32,22 @@ export interface CuratedPuzzleSpec {
  * 비어있으면 무작위 fallback (game.ts 가 폴백 처리).
  */
 export const CURATED_PUZZLES: CuratedPuzzleSpec[] = [
-  // 예제 1: 간단한 시드 — 바닥 row 19 에 4-gap, queue [I]
-  // (실제로는 사용자가 에디터로 디자인 후 추가)
+  // 라인 미션 예제 — row 19 4-gap + I-piece 1개로 1 라인 클리어
   {
     name: "warmup-i-gap",
     rowsFromBottom: ["###....###"],
     queue: ["I"],
     targetLines: 1,
+    difficulty: "Easy",
+  },
+  // 타겟 미션 예제 — 주황 셀 2개를 클리어 (라인 만들면서)
+  // row 19: 양 끝 살짝 비고, 가운데 4-gap. 그 4-gap 안에 타겟 2개가 박혀있는 모양은 불가
+  // (타겟 = 채운 셀이라 gap 못 됨). 대신 타겟을 row 19 양옆에 두고 I 로 라인 클리어해서 함께 제거.
+  {
+    name: "target-2-corners",
+    rowsFromBottom: ["@##....##@"],
+    queue: ["I"],
+    targetLines: 0,  // 타겟 미션은 targetLines 0 (사용 안 함)
     difficulty: "Easy",
   },
 ];
@@ -53,7 +65,10 @@ export function specToPuzzle(spec: CuratedPuzzleSpec, seed: number): Puzzle {
     const y = ROWS - 1 - i;
     const text = spec.rowsFromBottom[i];
     for (let x = 0; x < COLS && x < text.length; x += 1) {
-      grid[y][x] = text[x] === "#" ? ("garbage" as Cell) : null;
+      const ch = text[x];
+      grid[y][x] = ch === "#" ? ("garbage" as Cell)
+                : ch === "@" ? ("target" as Cell)
+                : null;
     }
   }
   return {

@@ -124,6 +124,9 @@ export class Game {
       queueIndex: this.queueIndex,
       ghostCells: this.computeGhost(),
       pressedControl: this.pressedControl,
+      isTargetMission: this.isTargetMission(),
+      targetsTotal: this.countTargetsTotal(),
+      targetsLeft: this.countTargetsLeft(),
       editGrid: this.editGrid.map((row) => [...row]),
       editQueueLength: this.editQueueLength,
       editFoundQueue: this.editFoundQueue ? [...this.editFoundQueue] : null,
@@ -331,12 +334,36 @@ export class Game {
     this.clearLines();
     this.queueIndex += 1;
     this.currentPiece = null;
-    // 목표 라인 달성 즉시 CLEAR (큐 소진 기다리지 않음)
-    if (this.linesCleared >= this.activePuzzle.targetLines && this.activePuzzle.targetLines > 0) {
+    // 즉시 CLEAR 검사 — 미션 타입에 따라:
+    //  - 타겟 미션: 보드에 "target" 셀이 0개면 성공
+    //  - 라인 미션: linesCleared >= targetLines
+    if (this.isTargetMission()) {
+      if (!this.hasTargetsLeft()) {
+        this.evaluate();
+        return;
+      }
+    } else if (this.linesCleared >= this.activePuzzle.targetLines && this.activePuzzle.targetLines > 0) {
       this.evaluate();
       return;
     }
     this.spawnNext();
+  }
+
+  /** 활성 퍼즐이 타겟 미션 (target 셀 클리어) 인지 — 초기 보드에 target 이 있으면 yes */
+  private isTargetMission(): boolean {
+    return this.activePuzzle.grid.some((row) => row.some((c) => c === "target"));
+  }
+
+  private hasTargetsLeft(): boolean {
+    return this.grid.some((row) => row.some((c) => c === "target"));
+  }
+
+  private countTargetsTotal(): number {
+    return this.activePuzzle.grid.flat().filter((c) => c === "target").length;
+  }
+
+  private countTargetsLeft(): number {
+    return this.grid.flat().filter((c) => c === "target").length;
   }
 
   /** 직전 드롭을 무름 (히스토리 pop, 피스 다시 스폰) */
@@ -378,10 +405,15 @@ export class Game {
   private evaluate(): void {
     this.attempts += 1;
     const target = this.activePuzzle.targetLines;
-    // 목표 라인 도달 = CLEAR (보드에 블록 남아 있어도 OK)
-    // target 0 (UGC 사용자 퍼즐) 인 경우엔 perfect-clear 폴백
     const isEmpty = this.grid.every((row) => row.every((cell) => cell === null));
-    const success = target > 0 ? this.linesCleared >= target : isEmpty;
+    let success: boolean;
+    if (this.isTargetMission()) {
+      success = !this.hasTargetsLeft();
+    } else if (target > 0) {
+      success = this.linesCleared >= target;
+    } else {
+      success = isEmpty;
+    }
     if (success) {
       this.mode = "clear";
       const stars =

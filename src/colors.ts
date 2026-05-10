@@ -2,7 +2,7 @@ import type { PieceKind } from "./gameTypes";
 
 type ColorPair = { fill: string; stroke: string };
 
-export const PIECE_COLORS: Record<PieceKind | "garbage" | "wall", ColorPair> = {
+export const PIECE_COLORS: Record<PieceKind | "garbage" | "wall" | "target", ColorPair> = {
   I: { fill: "var(--gb-piece-i)", stroke: "var(--gb-piece-i-dark)" },
   O: { fill: "var(--gb-piece-o)", stroke: "var(--gb-piece-o-dark)" },
   T: { fill: "var(--gb-piece-t)", stroke: "var(--gb-piece-t-dark)" },
@@ -12,6 +12,8 @@ export const PIECE_COLORS: Record<PieceKind | "garbage" | "wall", ColorPair> = {
   J: { fill: "var(--gb-piece-j)", stroke: "var(--gb-piece-j-dark)" },
   garbage: { fill: "var(--gb-piece-garbage)", stroke: "var(--gb-piece-garbage-dark)" },
   wall: { fill: "var(--gb-ink-soft)", stroke: "var(--gb-ink)" },
+  // 타겟 셀 — 강한 주황 (반드시 클리어해야 하는 미션 셀)
+  target: { fill: "var(--gb-accent)", stroke: "var(--gb-ink)" },
 };
 
 export const GHOST_COLOR: ColorPair = {
