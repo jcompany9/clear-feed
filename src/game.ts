@@ -867,14 +867,17 @@ export class Game {
   /** 만든 퍼즐로 플레이 (planning 모드 진입) — URL도 갱신해서 즉시 공유 가능 */
   playEditedPuzzle(): void {
     if (this.mode !== "editing" || !this.editFoundQueue || this.editStatus !== "ready") return;
+    // 미션 라인 수 = (cells + 4×queue) / 10 — 수학적 라인 미션
+    const cells = this.countEditCells();
+    const total = cells + this.editFoundQueue.length * 4;
+    const target = total > 0 && total % 10 === 0 ? total / 10 : 0;
     const editedPuzzle: Puzzle = {
       seed: 0, // user-created (no seed)
       template: "near-line",
       difficulty: "Normal",
       grid: this.editGrid.map((row) => [...row]),
       queue: [...this.editFoundQueue],
-      // targetLines = 0 → perfect-clear 평가 (isEmpty). 솔버가 이미 perfect-clear 큐를 보장.
-      targetLines: 0,
+      targetLines: target,
       movesLimit: this.editFoundQueue.length,
     };
     // 현재 피드에 추가하고 그 인덱스로 이동 → planning 시작

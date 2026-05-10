@@ -746,22 +746,14 @@ export class Renderer {
         ? resolveCssVar(TOKENS.success)
         : resolveCssVar(TOKENS.accent);
       this.ctx.fillText(`${done}/${snapshot.targetsTotal}`, screen.x + leftShift + 50, rowY);
-    } else if (target <= 0) {
-      // Perfect clear 모드 — 남은 블록 수 표시
-      const blocksLeft = this.countBlocks(snapshot.grid);
-      this.ctx.fillText("BLOCKS", screen.x + leftShift, rowY);
-      this.ctx.font = `bold 13px ${FONT_MONO_BASE}`;
-      this.ctx.fillStyle = blocksLeft === 0
-        ? resolveCssVar(TOKENS.success)
-        : resolveCssVar(TOKENS.ink);
-      this.ctx.fillText(`${blocksLeft}`, screen.x + leftShift + 44, rowY);
     } else {
       this.ctx.fillText("LINES", screen.x + leftShift, rowY);
       this.ctx.font = `bold 13px ${FONT_MONO_BASE}`;
-      this.ctx.fillStyle = cleared >= target
+      this.ctx.fillStyle = target > 0 && cleared >= target
         ? resolveCssVar(TOKENS.success)
         : resolveCssVar(TOKENS.ink);
-      this.ctx.fillText(`${cleared}/${target}`, screen.x + leftShift + 38, rowY);
+      const linesText = target > 0 ? `${cleared}/${target}` : `${cleared}`;
+      this.ctx.fillText(linesText, screen.x + leftShift + 38, rowY);
     }
 
     // 중: 0/6 (라벨 생략)
@@ -798,7 +790,7 @@ export class Renderer {
     const lines = snapshot.puzzle.targetLines;
     if (lines <= 0 || queueLen === 0) {
       const pieceLabel = queueLen === 1 ? "PIECE" : "PIECES";
-      return `▶ ${diff} · ${queueLen} ${pieceLabel} → PERFECT CLEAR`;
+      return `▶ ${diff} · ${queueLen} ${pieceLabel} → CLEAR THE BOARD`;
     }
     const lineLabel = lines === 1 ? "LINE" : "LINES";
     const pieceLabel = queueLen === 1 ? "PIECE" : "PIECES";
@@ -1221,11 +1213,6 @@ export class Renderer {
     return value.toString().padStart(width, "0");
   }
 
-  private countBlocks(grid: Cell[][]): number {
-    let n = 0;
-    for (const row of grid) for (const c of row) if (c !== null) n += 1;
-    return n;
-  }
 
   /** 상단 모서리 작은 아이콘 버튼 (quit / retry). 평면 박스 + 외곽선 + 가운데 글리프. */
   private drawTopButton(rect: { x: number; y: number; w: number; h: number }, glyph: string): void {

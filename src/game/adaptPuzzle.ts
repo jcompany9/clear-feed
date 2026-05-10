@@ -61,9 +61,7 @@ export function generateGamePuzzle(opts: GenerateGameOptions): Puzzle | null {
     difficulty: adaptDifficulty(generated.mission.difficulty),
     grid: adaptBoard(generated.board),
     queue: generated.pieces.map(adaptPieceType),
-    // perfect-clear 정체성 — 평가는 isEmpty. 신규 솔버는 라인 N개로 검증하지만,
-    // (cells + 4q) % 10 === 0 인 보드면 라인 N = perfect-clear 동등.
-    targetLines: 0,
+    targetLines: generated.mission.targetLines,
     movesLimit: generated.pieces.length,
   };
 }
@@ -75,14 +73,30 @@ const SKIP_IN_TEST =
   process.env?.VERIFY_SOLVER !== "1";
 
 /**
- * 셔플용 — 신규 솔버는 라인 미션 기반이라 perfect-clear 보장 안 됨.
- * 통일된 정체성 (perfect-clear) 정착 전까지 비활성. 호출자는 자동으로
- * legacy `createFeedPuzzle` 폴백 (그쪽은 perfect-clear 큐 보장).
- *
- * 향후: tetrisSolver 를 perfect-clear 모드 (solver.ts:59 isEmpty) 로
- * 리팩토링 후 재활성.
+ * 셔플용 — 매번 다른 난이도 시도 (Hard → Normal → Easy 순으로 폴백).
+ * tetrisSolver 의 라인 미션 generator 사용 (정체성: 라인 N개 클리어 = success).
  */
-export function generateShufflePuzzle(_seed: number): Puzzle | null {
+export function generateShufflePuzzle(seed: number): Puzzle | null {
   if (SKIP_IN_TEST) return null;
+
+  const roll = Math.random();
+  let primary: NewDifficulty;
+  if (roll < 0.5) primary = "normal";
+  else if (roll < 0.8) primary = "hard";
+  else if (roll < 0.95) primary = "challenge";
+  else primary = "easy";
+
+  const fallbackOrder: NewDifficulty[] = primary === "challenge"
+    ? ["challenge", "hard", "normal", "easy"]
+    : primary === "hard"
+      ? ["hard", "normal", "easy"]
+      : primary === "normal"
+        ? ["normal", "easy"]
+        : ["easy"];
+
+  for (const d of fallbackOrder) {
+    const result = generateGamePuzzle({ seed, difficulty: d, maxAttempts: 40 });
+    if (result) return result;
+  }
   return null;
 }

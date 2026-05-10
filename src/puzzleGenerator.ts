@@ -49,12 +49,10 @@ export function createFeedPuzzle(seed: number, challenge = false, fast = false):
  * 다 실패 시 확정 풀이 가능한 안전 폴백 (warmup-i-gap).
  */
 function buildConstructedEasy(seed: number, rng: Rng): Puzzle {
-  // NOTE: random-dropped 시도 비활성 — 솔버 검증이 무거워 무한 로딩 유발.
-  // 다음 이터: maxNodes/attempts 더 깎거나 비동기 워커로 옮김.
   const attempts = SKIP_SOLVER_VERIFY ? 1 : 12;
   for (let i = 0; i < attempts; i += 1) {
     const pattern = pickEasyPattern(rng);
-    const { grid, queue } = pattern(rng);
+    const { grid, queue, targetLines: patternTarget } = pattern(rng);
     const adjusted = adjustQueueForMath(grid, queue, queue.length, rng);
     const candidate: Puzzle = {
       seed,
@@ -62,13 +60,13 @@ function buildConstructedEasy(seed: number, rng: Rng): Puzzle {
       difficulty: "Easy",
       grid,
       queue: adjusted.queue,
-      targetLines: 0,
+      targetLines: patternTarget,
       movesLimit: adjusted.queue.length,
     };
     if (SKIP_SOLVER_VERIFY) return candidate;
     if (solve(candidate, 30000).solvable) return candidate;
   }
-  return safePerfectClearFallback(seed, "Easy");
+  return safeLineMissionFallback(seed, "Easy");
 }
 
 type EasyPattern = (rng: Rng) => { grid: Cell[][]; queue: PieceKind[]; targetLines: number };
@@ -177,11 +175,10 @@ const easy4Row3GapJOIO: EasyPattern = (rng) => {
  * Normal 모드: 3 피스 큐, 2~3 라인 클리어 — 더 깊은 계획 필요.
  */
 function buildConstructedNormal(seed: number, rng: Rng): Puzzle {
-  // NOTE: random-dropped 시도 비활성 — 무한 로딩 유발 (buildConstructedEasy 동일).
   const attempts = SKIP_SOLVER_VERIFY ? 1 : 12;
   for (let i = 0; i < attempts; i += 1) {
     const pattern = pickNormalPattern(rng);
-    const { grid, queue } = pattern(rng);
+    const { grid, queue, targetLines: patternTarget } = pattern(rng);
     const adjusted = adjustQueueForMath(grid, queue, queue.length, rng);
     const candidate: Puzzle = {
       seed,
@@ -189,27 +186,24 @@ function buildConstructedNormal(seed: number, rng: Rng): Puzzle {
       difficulty: "Normal",
       grid,
       queue: adjusted.queue,
-      targetLines: 0,
+      targetLines: patternTarget,
       movesLimit: adjusted.queue.length,
     };
     if (SKIP_SOLVER_VERIFY) return candidate;
     if (solve(candidate, 30000).solvable) return candidate;
   }
-  return safePerfectClearFallback(seed, "Normal");
+  return safeLineMissionFallback(seed, "Normal");
 }
 
 /**
- * 확정 풀이 가능한 perfect-clear 폴백 — 5-row 4-gap well + I 5개로 5 라인 동시 클리어.
- * 1-piece 안전 폴백은 너무 시시해서 사용자 도전을 망치므로, 최악의 경우에도 5-piece +
- * 사고 깊이를 강제. I-piece 가로 5번 정확히 같은 위치에 떨어뜨려야 하므로 mindless
- * 클리어가 아니다.
+ * 확정 풀이 가능한 라인 미션 폴백 — 5-row 4-gap well + I 5개. targetLines = 5.
+ * (정체성: 라인 N개 클리어 = success. 잔여 셀 OK.)
  */
-function safePerfectClearFallback(seed: number, difficulty: Difficulty): Puzzle {
+function safeLineMissionFallback(seed: number, difficulty: Difficulty): Puzzle {
   const rng = createRng(seed);
   const grid: Cell[][] = Array.from({ length: ROWS }, () =>
     Array.from({ length: COLS }, () => null as Cell),
   );
-  // 5 rows × ###....### (3+4+3 = 6 cells) — I-piece 가로로 가운데 4칸 채우면 라인 클리어
   for (let r = 0; r < 5; r += 1) {
     const y = ROWS - 1 - r;
     grid[y] = [
@@ -223,7 +217,7 @@ function safePerfectClearFallback(seed: number, difficulty: Difficulty): Puzzle 
     difficulty,
     grid,
     queue: ["I", "I", "I", "I", "I"],
-    targetLines: 0,
+    targetLines: 5,
     movesLimit: 5,
   };
 }
@@ -324,22 +318,24 @@ function buildOnePuzzle(seed: number, challenge: boolean, rng: Rng): { puzzle: P
 
   const adjusted = adjustQueueForMath(grid, queue, movesLimit, rng);
 
-  // perfect-clear 정체성 — 평가는 isEmpty. 솔버 검증도 perfect-clear 모드 (targetLines=0).
-  // 솔버: target===0 이면 큐 다 써서 보드 비워야 solvable.
-  // adjustQueueForMath 가 (cells + 4q) % 10 === 0 보장하므로 perfect-clear 후보 존재.
+  // 라인 미션 정체성 — perfect-clear 가 자동 생성에서 양립 불가능해서 라인 N개 클리어로 회귀.
+  // targetLines = (cells + 4q) / 10 (수학적 최대 라인 수) 또는 intendedTarget 폴백.
+  const cellCount = countNonWallCells(grid);
+  const totalCells = cellCount + adjusted.length * 4;
+  const targetLines = totalCells > 0 && totalCells % 10 === 0 ? totalCells / 10 : intendedTarget;
+
   let verified = SKIP_SOLVER_VERIFY;
   let finalQueue = adjusted.queue;
   let difficulty: Difficulty = initialDifficulty;
 
   if (!SKIP_SOLVER_VERIFY) {
-    const solvableQueue = ensureSolvable(grid, adjusted.queue, adjusted.length, 0, rng);
+    const solvableQueue = ensureSolvable(grid, adjusted.queue, adjusted.length, targetLines, rng);
     if (solvableQueue) {
-      // 엄격 필터: solutionCount ≤ 2 만 통과. 3+ = 너그러운 퍼즐 거부.
       const probe: Puzzle = {
         seed: 0, template: "near-line", difficulty: initialDifficulty,
-        grid, queue: solvableQueue, targetLines: 0, movesLimit: solvableQueue.length,
+        grid, queue: solvableQueue, targetLines, movesLimit: solvableQueue.length,
       };
-      const analysis = analyze(probe, 3, 6000);  // cap=3 (3+ 찾으면 reject)
+      const analysis = analyze(probe, 3, 6000);
       if (!analysis.truncated && analysis.solutionCount > 0 && !analysis.capped) {
         finalQueue = solvableQueue;
         verified = true;
@@ -355,7 +351,7 @@ function buildOnePuzzle(seed: number, challenge: boolean, rng: Rng): { puzzle: P
       difficulty,
       grid,
       queue: finalQueue,
-      targetLines: 0,
+      targetLines,
       movesLimit: finalQueue.length,
     },
     verified,
