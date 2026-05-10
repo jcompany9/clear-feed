@@ -42,23 +42,30 @@ export function createFeedPuzzle(seed: number, challenge = false, fast = false):
 }
 
 /**
- * 다양한 Easy 패턴 — 모든 패턴이 디자인으로 풀이 보장.
- * 솔버 검증 불필요 → 즉시 생성 (< 1ms).
+ * Easy 패턴 시도 + perfect-clear 솔버 검증.
+ * adjustQueueForMath 가 큐 길이를 강제 변경해서 패턴 디자인 풀이가 깨지는
+ * 케이스 (예: seed 86786 — L 1개로 라인 3개 불가) 를 차단한다.
+ * 다 실패 시 확정 풀이 가능한 안전 폴백 (warmup-i-gap).
  */
 function buildConstructedEasy(seed: number, rng: Rng): Puzzle {
-  const pattern = pickEasyPattern(rng);
-  const { grid, queue } = pattern(rng);
-  // perfect-clear 가능성 보장 — (cells + 4q) % 10 === 0 으로 큐 길이 보정
-  const adjusted = adjustQueueForMath(grid, queue, queue.length, rng);
-  return {
-    seed,
-    template: "near-line",
-    difficulty: "Easy",
-    grid,
-    queue: adjusted.queue,
-    targetLines: 0,
-    movesLimit: adjusted.queue.length,
-  };
+  const attempts = SKIP_SOLVER_VERIFY ? 1 : 12;
+  for (let i = 0; i < attempts; i += 1) {
+    const pattern = pickEasyPattern(rng);
+    const { grid, queue } = pattern(rng);
+    const adjusted = adjustQueueForMath(grid, queue, queue.length, rng);
+    const candidate: Puzzle = {
+      seed,
+      template: "near-line",
+      difficulty: "Easy",
+      grid,
+      queue: adjusted.queue,
+      targetLines: 0,
+      movesLimit: adjusted.queue.length,
+    };
+    if (SKIP_SOLVER_VERIFY) return candidate;
+    if (solve(candidate, 30000).solvable) return candidate;
+  }
+  return safePerfectClearFallback(seed, "Easy");
 }
 
 type EasyPattern = (rng: Rng) => { grid: Cell[][]; queue: PieceKind[]; targetLines: number };
@@ -167,17 +174,44 @@ const easy4Row3GapJOIO: EasyPattern = (rng) => {
  * Normal 모드: 3 피스 큐, 2~3 라인 클리어 — 더 깊은 계획 필요.
  */
 function buildConstructedNormal(seed: number, rng: Rng): Puzzle {
-  const pattern = pickNormalPattern(rng);
-  const { grid, queue } = pattern(rng);
-  const adjusted = adjustQueueForMath(grid, queue, queue.length, rng);
+  const attempts = SKIP_SOLVER_VERIFY ? 1 : 12;
+  for (let i = 0; i < attempts; i += 1) {
+    const pattern = pickNormalPattern(rng);
+    const { grid, queue } = pattern(rng);
+    const adjusted = adjustQueueForMath(grid, queue, queue.length, rng);
+    const candidate: Puzzle = {
+      seed,
+      template: "near-line",
+      difficulty: "Normal",
+      grid,
+      queue: adjusted.queue,
+      targetLines: 0,
+      movesLimit: adjusted.queue.length,
+    };
+    if (SKIP_SOLVER_VERIFY) return candidate;
+    if (solve(candidate, 30000).solvable) return candidate;
+  }
+  return safePerfectClearFallback(seed, "Normal");
+}
+
+/**
+ * 확정 풀이 가능한 perfect-clear 폴백 — row 19 6칸 채움 + I 1개로 1라인.
+ * 다른 모든 polback 이 unsolvable 일 때 사용자에게 풀 수 있는 퍼즐 보장.
+ */
+function safePerfectClearFallback(seed: number, difficulty: Difficulty): Puzzle {
+  const grid: Cell[][] = Array.from({ length: ROWS }, () =>
+    Array.from({ length: COLS }, () => null as Cell),
+  );
+  // row 19: ###...####  → I 가로로 빈 3칸... 잠깐 4-gap 필요. ###....### (3+4+3)
+  grid[ROWS - 1] = ["garbage", "garbage", "garbage", null, null, null, null, "garbage", "garbage", "garbage"];
   return {
     seed,
     template: "near-line",
-    difficulty: "Normal",
+    difficulty,
     grid,
-    queue: adjusted.queue,
+    queue: ["I"],
     targetLines: 0,
-    movesLimit: adjusted.queue.length,
+    movesLimit: 1,
   };
 }
 
