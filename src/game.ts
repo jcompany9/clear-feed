@@ -710,6 +710,26 @@ export class Game {
     this.sound.play("move");
   }
 
+  /** 타겟 라인 수를 ±. 새 target 에 맞는 Q 를 자동 도출. 정수 Q ∈ [1, 10] 못 만들면 거부. */
+  setEditTargetLines(delta: number): void {
+    if (this.mode !== "editing") return;
+    const cells = this.countEditCells();
+    const total = cells + this.editQueueLength * 4;
+    const currentTarget = total > 0 && total % 10 === 0 ? total / 10 : 0;
+    const newTarget = currentTarget + delta;
+    if (newTarget < 1 || newTarget > 10) return;
+    const requiredCells = newTarget * 10;
+    const newQ = (requiredCells - cells) / 4;
+    if (!Number.isInteger(newQ) || newQ < 1 || newQ > 10) {
+      this.flashToast(`TARGET ${newTarget} NEEDS Q=${newQ.toFixed(1)} — INVALID`);
+      return;
+    }
+    this.editQueueLength = newQ;
+    this.editFoundQueue = null;
+    this.editStatus = "idle";
+    this.sound.play("move");
+  }
+
   /** 사용자 보드에 풀이 가능한 큐를 자동 생성. Worker 사용 시 비동기 (UI 안 멈춤). */
   generateEditedPuzzle(): void {
     if (this.mode !== "editing") return;

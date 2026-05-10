@@ -584,10 +584,10 @@ export class Renderer {
     else if (sol > 0) { line1 = `${cells} CELLS — SOLVABLE ✓`; line1Color = TOKENS.success; }
     else { line1 = `${cells} CELLS — NO SOLUTION`; line1Color = TOKENS.warning; }
 
-    // 라인 2: 미션 (target lines + queue length)
+    // 라인 2: 미션 — target [/] · Q +/-
     const line2 = targetLines !== null
-      ? `MISSION: CLEAR ${targetLines} LINES · Q=${q} (+/-)`
-      : `Q=${q} (+/-) — ADJUST TO MATCH CELLS`;
+      ? `MISSION: CLEAR ${targetLines} LINES [/]  ·  Q=${q} +/-`
+      : `Q=${q} +/- — ADJUST TO MATCH CELLS`;
     const line2Color = targetLines !== null ? TOKENS.accent : TOKENS.inkSoft;
 
     this.ctx.save();

@@ -193,9 +193,11 @@ export class InputController {
       if (event.key === "ArrowDown") this.game.editSoftDrop();
       if (event.key === "ArrowUp" || event.key.toLowerCase() === "r") this.game.editRotateCurrent();
       if (event.key === " ") this.game.editHardDrop();
-      // 큐 길이 / generate / 퍼즐 진입
+      // 큐 길이 (+/-) / 타겟 라인 ([])
       if (event.key === "+" || event.key === "=") this.game.setEditQueueLength(1);
       if (event.key === "-" || event.key === "_") this.game.setEditQueueLength(-1);
+      if (event.key === "]" || event.key === "}") this.game.setEditTargetLines(1);
+      if (event.key === "[" || event.key === "{") this.game.setEditTargetLines(-1);
       if (event.key.toLowerCase() === "g" && this.game.snapshot.editStatus !== "generating") {
         this.game.generateEditedPuzzle();
       }
