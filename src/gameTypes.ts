@@ -2,7 +2,7 @@ export const COLS = 10;
 export const ROWS = 20;
 
 export type PieceKind = "I" | "O" | "T" | "L" | "J" | "S" | "Z";
-export type Difficulty = "Easy" | "Normal" | "Challenge";
+export type Difficulty = "Easy" | "Normal" | "Hard" | "Challenge";
 export type GameMode = "feed" | "planning" | "clear" | "failed" | "editing";
 
 export type Cell = PieceKind | "garbage" | "wall" | null;

@@ -13,6 +13,7 @@ import {
 } from "./gameTypes";
 import { absoluteCells, createPiece, rotatePiece } from "./pieces";
 import { createFeedPuzzle, createInitialFeed } from "./puzzleGenerator";
+import { generateShufflePuzzle } from "./game/adaptPuzzle";
 import { getPuzzlePool } from "./puzzlePool";
 import { findSolvableQueue } from "./solver";
 import SolverWorker from "./solverWorker?worker";
@@ -483,12 +484,10 @@ export class Game {
   shuffleFeed(): void {
     if (this.mode !== "feed") return;
     this.captureFeedTransition();
-    // 백그라운드 풀에서 즉시 pop, 비어있으면 sync 폴백 (희귀)
+    // 우선순위: 워커 풀 (즉시) → sync 신규 솔버 (~수초) → 옛 폴백 (즉시)
+    const seed = this.activePuzzle.seed + 91 + this.feedIndex * 31 + Math.floor(Math.random() * 1000);
     const pooled = getPuzzlePool().pop();
-    const puzzle = pooled ?? createFeedPuzzle(
-      this.activePuzzle.seed + 91 + this.feedIndex * 31 + Math.floor(Math.random() * 1000),
-      false,
-    );
+    const puzzle = pooled ?? generateShufflePuzzle(seed) ?? createFeedPuzzle(seed, false);
     this.feed.splice(this.feedIndex + 1, 0, { puzzle, cleared: false });
     this.feedIndex += 1;
     this.attempts = 0;
@@ -811,11 +810,9 @@ export class Game {
   }
 
   private appendPuzzle(): void {
+    const seed = this.feed[this.feed.length - 1].puzzle.seed + 101 + this.feed.length * 7;
     const pooled = getPuzzlePool().pop();
-    const puzzle = pooled ?? createFeedPuzzle(
-      this.feed[this.feed.length - 1].puzzle.seed + 101 + this.feed.length * 7,
-      false,
-    );
+    const puzzle = pooled ?? generateShufflePuzzle(seed) ?? createFeedPuzzle(seed, false);
     this.feed.push({ puzzle, cleared: false });
     this.feed = this.feed.slice(-12);
     this.feedIndex = Math.min(this.feedIndex, this.feed.length - 1);

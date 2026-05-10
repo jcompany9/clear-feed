@@ -7,6 +7,7 @@
  * 메인은 풀 size 모니터링하다 부족하면 새 seed 요청. 사용자 셔플은 풀에서 즉시 pop.
  */
 import { createFeedPuzzle } from "./puzzleGenerator";
+import { generateShufflePuzzle } from "./game/adaptPuzzle";
 import type { Puzzle } from "./gameTypes";
 
 interface WorkerRequest {
@@ -29,7 +30,10 @@ type WorkerResponse = WorkerReady | WorkerFailed;
 self.addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
   const { seed } = event.data;
   try {
-    const puzzle = createFeedPuzzle(seed);
+    // 1차: 신규 tetrisSolver 어댑터 — 진짜 난이도 필터 통과한 퍼즐
+    let puzzle: Puzzle | null = generateShufflePuzzle(seed);
+    // 폴백: 기존 createFeedPuzzle (보장된 풀이 가능, 단순 패턴)
+    if (!puzzle) puzzle = createFeedPuzzle(seed);
     const response: WorkerReady = { type: "ready", puzzle };
     (self as unknown as { postMessage: (data: WorkerResponse) => void }).postMessage(response);
   } catch {

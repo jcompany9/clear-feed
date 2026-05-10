@@ -350,6 +350,10 @@ export function isMissionSuccess(
   return totalCleared >= mission.targetLines;
 }
 
+// OOM 방지용 — 솔버 한 번 호출 당 노드 상한. memo 와 별개로 강제 중단.
+const SEARCH_NODE_LIMIT = 200_000;
+const searchNodeCounter = { count: 0 };
+
 export function searchRecursive(
   board: Board,
   pieces: PieceType[],
@@ -360,6 +364,9 @@ export function searchRecursive(
   mission: Mission,
   memo: Set<string>,
 ): void {
+  // 0. 노드 상한 — 무한 탐색/OOM 방지
+  searchNodeCounter.count += 1;
+  if (searchNodeCounter.count > SEARCH_NODE_LIMIT) return;
   // 1. maxSolutions 가지치기
   if (mission.maxSolutions !== null && solutions.length >= mission.maxSolutions) return;
   // 2. exactClearLines 초과 가지치기
@@ -437,6 +444,7 @@ export function solvePuzzle(
 ): SolveResult {
   const solutions: Solution[] = [];
   const memo = new Set<string>();
+  searchNodeCounter.count = 0;  // 호출마다 노드 카운터 리셋
   searchRecursive(cloneBoard(board), pieces, 0, 0, [], solutions, mission, memo);
   const stats = analyzeSolutions(solutions, pieces, mission);
   return {
