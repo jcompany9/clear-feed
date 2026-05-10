@@ -61,9 +61,9 @@ export class Game {
   private editPieceQueue: PieceKind[] = [];
   private editSolutionEstimate = 0;
   private editAnalyzing = false;
+  private editCurrentPiece: Piece | null = null;
   private editTool: PieceKind = "I";
   private editToolRotation = 0;
-  private editHoverPos: { col: number; row: number } | null = null;
   private useWorker: boolean;
   private solverWorker: Worker | null = null;
   private nextWorkerId = 0;
@@ -131,6 +131,8 @@ export class Game {
       editPieceQueue: [...this.editPieceQueue],
       editSolutionEstimate: this.editSolutionEstimate,
       editAnalyzing: this.editAnalyzing,
+      editCurrentPiece: this.editCurrentPiece,
+      editGhostCells: this.computeEditCurrentGhost(),
       editTool: this.editTool,
       editToolRotation: this.editToolRotation,
       editFeasibleLengths: this.computeFeasibleLengths(),
@@ -138,25 +140,22 @@ export class Game {
     };
   }
 
-  /** 편집 모드 호버 위치 갱신 (마우스 이동 또는 터치 드래그) */
-  setEditHoverPos(pos: { col: number; row: number } | null): void {
-    if (this.mode !== "editing") {
-      this.editHoverPos = null;
-      return;
-    }
-    this.editHoverPos = pos;
+  /** Legacy no-op — hover ghost 사용 안 함 (input.ts 호환용 stub) */
+  setEditHoverPos(_pos: { col: number; row: number } | null): void {}
+
+  /** Hover ghost — 더 이상 사용 안 함 (drop 은 hard-drop 버튼). 호환용 빈값 반환. */
+  private computeEditGhost(): { cells: Point[]; kind: PieceKind; valid: boolean } | null {
+    return null;
   }
 
-  /** 편집 모드 ghost: 현재 큐 피스가 hover col 에 떨어질 안착 위치 미리보기. */
-  private computeEditGhost(): { cells: Point[]; kind: PieceKind; valid: boolean } | null {
-    if (this.mode !== "editing" || this.editHoverPos === null) return null;
-    const { col } = this.editHoverPos;
-    const landed = this.computeEditDrop(col);
-    if (!landed) {
-      return { cells: [], kind: this.editTool, valid: false };
+  /** 현재 active piece 가 바닥까지 떨어질 안착 위치 — 렌더러용 ghost */
+  private computeEditCurrentGhost(): Point[] | null {
+    if (this.mode !== "editing" || !this.editCurrentPiece) return null;
+    let p = this.editCurrentPiece;
+    while (this.canPlaceOnEditGrid({ ...p, y: p.y + 1 })) {
+      p = { ...p, y: p.y + 1 };
     }
-    const cells = absoluteCells(landed).filter((c) => c.y >= 0 && c.y < ROWS && c.x >= 0 && c.x < COLS);
-    return { cells, kind: this.editTool, valid: true };
+    return absoluteCells(p);
   }
 
   /** 수학적으로 풀이 가능한 큐 길이 (1~10 범위). (cellCount + 4q) % 10 === 0 만족하는 q. */
@@ -530,6 +529,7 @@ export class Game {
     this.editAnalyzing = false;
     this.refillEditPieceQueue();
     if (this.editPieceQueue.length > 0) this.editTool = this.editPieceQueue[0];
+    this.spawnEditPiece();
   }
 
   /** 에디터 큐를 5개 이상으로 보충 (연속 중복 방지) */
@@ -546,48 +546,99 @@ export class Game {
     }
   }
 
-  rotateEditTool(): void {
-    if (this.mode !== "editing") return;
-    this.editToolRotation = (this.editToolRotation + 1) % 4;
-    this.sound.play("rotate");
+  /** 에디터: 현재 피스 좌/우 1칸 이동 (버튼) */
+  editMoveCurrent(dx: number): void {
+    if (this.mode !== "editing" || !this.editCurrentPiece) return;
+    const moved = { ...this.editCurrentPiece, x: this.editCurrentPiece.x + dx };
+    if (this.canPlaceOnEditGrid(moved)) {
+      this.editCurrentPiece = moved;
+      this.sound.play("move");
+    }
   }
 
-  /** 에디터 배치 — 실제 테트리스: 큐의 현재 피스를 col 컬럼에 떨어뜨림.
-   *  라인이 클리어되면 거부 (퍼즐 초기 상태에 부적합). */
-  editPlaceAt(col: number, _row: number): void {
-    if (this.mode !== "editing") return;
-    const currentPiece = this.editPieceQueue[0];
-    if (!currentPiece) return;
-    this.editTool = currentPiece;  // 큐와 항상 동기화
-    const landed = this.computeEditDrop(col);
-    if (!landed) {
-      this.flashToast("BLOCKED — TRY ANOTHER COLUMN");
-      this.animation.editShake = 1;
-      this.sound.play("fail");
-      return;
+  /** 에디터: 현재 피스 회전 + wall kick */
+  editRotateCurrent(): void {
+    if (this.mode !== "editing" || !this.editCurrentPiece) return;
+    const rotated = rotatePiece(this.editCurrentPiece);
+    for (const dx of [0, -1, 1, -2, 2]) {
+      const kicked = { ...rotated, x: rotated.x + dx };
+      if (this.canPlaceOnEditGrid(kicked)) {
+        this.editCurrentPiece = kicked;
+        this.editToolRotation = (this.editToolRotation + 1) % 4;
+        this.sound.play("rotate");
+        return;
+      }
     }
-    const cells = absoluteCells(landed);
+  }
+
+  /** Legacy 별명 (input 호환) — editRotateCurrent 와 동일 */
+  rotateEditTool(): void {
+    this.editRotateCurrent();
+  }
+
+  /** 에디터: 현재 피스 한 칸 아래로 (소프트 드롭 — 잠금 안 함) */
+  editSoftDrop(): void {
+    if (this.mode !== "editing" || !this.editCurrentPiece) return;
+    const moved = { ...this.editCurrentPiece, y: this.editCurrentPiece.y + 1 };
+    if (this.canPlaceOnEditGrid(moved)) {
+      this.editCurrentPiece = moved;
+    }
+  }
+
+  /** 에디터: 현재 피스 바닥까지 떨어뜨려 잠금 (하드 드롭).
+   *  라인 클리어 발생 시 거부 → 피스 재스폰. */
+  editHardDrop(): void {
+    if (this.mode !== "editing" || !this.editCurrentPiece) return;
+    let landed = this.editCurrentPiece;
+    while (this.canPlaceOnEditGrid({ ...landed, y: landed.y + 1 })) {
+      landed = { ...landed, y: landed.y + 1 };
+    }
+    this.editLockPiece(landed);
+  }
+
+  private editLockPiece(piece: Piece): void {
+    const cells = absoluteCells(piece);
     if (this.simulateLineClearAfterPlace(cells)) {
       this.flashToast("LINE CLEAR — INVALID FOR PUZZLE");
       this.animation.editShake = 1;
       this.sound.play("fail");
+      // 거부: 새 피스 재스폰 (큐 진행 안 함 — 같은 피스 다시 시도 가능)
+      this.spawnEditPiece();
       return;
     }
     // 실제 배치
     for (const cell of cells) {
       if (cell.y >= 0 && cell.y < ROWS && cell.x >= 0 && cell.x < COLS) {
-        this.editGrid[cell.y][cell.x] = currentPiece as Cell;
+        this.editGrid[cell.y][cell.x] = piece.kind as Cell;
       }
     }
-    // 큐 진행 + 보충
+    // 큐 진행 + 새 피스 스폰
     this.editPieceQueue.shift();
     this.refillEditPieceQueue();
-    this.editTool = this.editPieceQueue[0] ?? "I";
-    this.editToolRotation = 0;
     this.editFoundQueue = null;
     this.editStatus = "idle";
     this.sound.play("land");
+    this.spawnEditPiece();
     this.runEditAnalysisAsync();
+  }
+
+  /** 큐의 첫 피스를 보드 상단 중앙에 스폰 */
+  private spawnEditPiece(): void {
+    const kind = this.editPieceQueue[0];
+    if (!kind) {
+      this.editCurrentPiece = null;
+      return;
+    }
+    this.editTool = kind;
+    this.editToolRotation = 0;
+    const piece = createPiece(kind);  // x=4, y=1 default
+    if (this.canPlaceOnEditGrid(piece)) {
+      this.editCurrentPiece = piece;
+    } else {
+      // 스폰 위치 막힘 — 보드가 너무 가득 참
+      this.editCurrentPiece = null;
+      this.flashToast("BOARD FULL — NO ROOM TO SPAWN");
+    }
   }
 
   private simulateLineClearAfterPlace(cells: Point[]): boolean {
@@ -629,23 +680,6 @@ export class Game {
       this.editSolutionEstimate = solutionsFound;
       this.editAnalyzing = false;
     }, 0);
-  }
-
-  /** 편집 보드에서 현재 도구(piece)를 col 컬럼에 떨어뜨릴 때 안착 위치 반환.
-   *  도구가 cell 이거나 어떤 위치에서도 못 놓이면 null. */
-  private computeEditDrop(col: number): Piece | null {
-    if (this.mode !== "editing") return null;
-    let piece = createPiece(this.editTool);
-    for (let i = 0; i < this.editToolRotation; i += 1) piece = rotatePiece(piece);
-    piece = { ...piece, x: col, y: -2 };
-    if (!this.canPlaceOnEditGrid(piece)) {
-      // 시작 위치(맨 위)도 못 놓이면 컬럼 자체가 막힘
-      return null;
-    }
-    while (this.canPlaceOnEditGrid({ ...piece, y: piece.y + 1 })) {
-      piece = { ...piece, y: piece.y + 1 };
-    }
-    return piece;
   }
 
   private canPlaceOnEditGrid(piece: Piece): boolean {

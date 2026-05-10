@@ -378,7 +378,7 @@ describe("Editor — enterEditor / exitEditor", () => {
   it("exitEditor returns to feed and clears state", () => {
     const game = makeGame();
     game.enterEditor();
-    game.editPlaceAt(3, 0);  // drop a piece (drop-from-top)
+    game.editHardDrop();  // drop active piece
     game.exitEditor();
     expect(game.snapshot.mode).toBe("feed");
     expect(game.snapshot.editGrid).toEqual([]);
@@ -409,48 +409,56 @@ describe("Editor — tool selection & piece placement", () => {
     expect(game.snapshot.editToolRotation).toBe(0);
   });
 
-  it("editPlaceAt drops queue's current piece from top (real-tetris)", () => {
+  it("editor spawns active piece at top center on enter", () => {
     const game = makeGame();
     game.enterEditor();
-    const currentPiece = game.snapshot.editPieceQueue[0];
-    game.editPlaceAt(4, 10);
-    const filled = game.snapshot.editGrid.flat().filter((c) => c !== null);
-    expect(filled.length).toBeGreaterThan(0);
-    expect(filled.every((c) => c === currentPiece)).toBe(true);
-    expect(game.snapshot.editPieceQueue[0]).not.toBe(currentPiece);
+    expect(game.snapshot.editCurrentPiece).not.toBeNull();
+    const cur = game.snapshot.editCurrentPiece!;
+    expect(cur.kind).toBe(game.snapshot.editPieceQueue[0]);
+    expect(cur.y).toBeLessThanOrEqual(2);  // 상단 영역
   });
 
-  it("editPlaceAt rejects placement when it would clear a line (cells unchanged + shake)", () => {
+  it("editHardDrop locks active piece + spawns next", () => {
     const game = makeGame();
     game.enterEditor();
-    // row 19 cells via test toggle helper — 8칸 채워서 2칸만 비움
+    const before = game.snapshot.editPieceQueue[0];
+    game.editHardDrop();
+    const filled = game.snapshot.editGrid.flat().filter((c) => c !== null);
+    expect(filled.length).toBeGreaterThan(0);
+    expect(filled.every((c) => c === before)).toBe(true);
+    // 다음 피스 자동 스폰
+    expect(game.snapshot.editCurrentPiece).not.toBeNull();
+    expect(game.snapshot.editCurrentPiece!.kind).toBe(game.snapshot.editPieceQueue[0]);
+  });
+
+  it("editMoveCurrent shifts piece left/right", () => {
+    const game = makeGame();
+    game.enterEditor();
+    const startX = game.snapshot.editCurrentPiece!.x;
+    game.editMoveCurrent(-1);
+    expect(game.snapshot.editCurrentPiece!.x).toBe(startX - 1);
+    game.editMoveCurrent(2);
+    expect(game.snapshot.editCurrentPiece!.x).toBe(startX + 1);
+  });
+
+  it("editHardDrop rejects + shakes when line would clear", () => {
+    const game = makeGame();
+    game.enterEditor();
+    // 거의 가득 찬 row 19 — 4,5 비움
     for (let x = 0; x < 10; x += 1) {
       if (x !== 4 && x !== 5) game.editToggleCell(x, 19);
     }
-    const beforeFilled = game.snapshot.editGrid.flat().filter((c) => c !== null).length;
-    expect(beforeFilled).toBe(8);
-    // 어떤 피스든 col 4 에 떨어뜨릴 때, 만약 row 19 채우면 거부됨
-    // 결과: 거부 시 셀 수 그대로 + editShake > 0; 허용 시 셀 수 증가
-    game.editPlaceAt(4, 10);
+    const before = game.snapshot.editGrid.flat().filter((c) => c !== null).length;
+    expect(before).toBe(8);
+    // active piece 를 col 4-5 위로 이동시킨 후 hard drop → row 19 가 차면 거부
+    game.editHardDrop();
     const after = game.snapshot.editGrid.flat().filter((c) => c !== null).length;
-    if (after === beforeFilled) {
-      // 거부됨 → shake 발동
+    // 거부면 셀 수 같음 + shake; 허용이면 +N (피스 셀)
+    if (after === before) {
       expect(game.snapshot.animation.editShake).toBeGreaterThan(0);
     } else {
-      // 허용됨 → shake 없음 (다른 컬럼/회전이거나 라인 안 차는 위치)
-      expect(after).toBeGreaterThan(beforeFilled);
+      expect(after).toBeGreaterThan(before);
     }
-  });
-
-  it("editPlaceAt placing same column twice stacks", () => {
-    const game = makeGame();
-    game.enterEditor();
-    const before = game.snapshot.editGrid.flat().filter((c) => c !== null).length;
-    game.editPlaceAt(4, 10);
-    game.editPlaceAt(4, 10);
-    const after = game.snapshot.editGrid.flat().filter((c) => c !== null).length;
-    // 두 피스 (8 cells) 안착 — 단 거부 시 더 적음
-    expect(after).toBeGreaterThanOrEqual(before);
   });
 });
 

@@ -83,4 +83,6 @@ export interface GameSnapshot {
   editPieceQueue: PieceKind[];       // 다음 피스 큐 (5개 이상 유지)
   editSolutionEstimate: number;      // 현재 보드에서 풀이 가능한 큐 추정 개수 (마지막 분석 결과)
   editAnalyzing: boolean;            // 분석 진행 중
+  editCurrentPiece: Piece | null;    // 현재 떨어지고 있는 피스 (위치 + 회전 포함)
+  editGhostCells: Point[] | null;    // 현재 피스가 떨어질 안착 위치
 }

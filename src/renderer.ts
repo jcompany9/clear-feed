@@ -443,14 +443,31 @@ export class Renderer {
       this.line(ox, oy + y * cell + 0.5, ox + boardW, oy + y * cell + 0.5);
     }
 
-    // editGrid 셀 그리기 — 각 셀의 실제 kind 색상으로 (사용자가 어떤 피스 놓았는지 시각적으로 보임)
+    // editGrid 셀 그리기 — 각 셀의 실제 kind 색상으로
     snapshot.editGrid.forEach((row, y) => {
       row.forEach((c, x) => {
         if (c) this.drawCell(ox, oy, cell, x, y, c, 1, false);
       });
     });
 
-    // 호버 미리보기 ghost — drop 안착 위치 (실제 테트리스 ghost)
+    // 떨어질 위치 ghost (반투명) + 현재 피스 (위에서 아래로 떨어지는 중)
+    if (snapshot.editGhostCells && snapshot.editCurrentPiece) {
+      const kind = snapshot.editCurrentPiece.kind;
+      snapshot.editGhostCells.forEach((p) => {
+        if (p.y < 0 || p.y >= ROWS || p.x < 0 || p.x >= COLS) return;
+        this.drawCell(ox, oy, cell, p.x, p.y, kind, 0.3, false);
+      });
+    }
+    if (snapshot.editCurrentPiece) {
+      const piece = snapshot.editCurrentPiece;
+      const cells = absoluteCells(piece);
+      cells.forEach((p) => {
+        if (p.y < 0 || p.y >= ROWS || p.x < 0 || p.x >= COLS) return;
+        this.drawCell(ox, oy, cell, p.x, p.y, piece.kind, 1, true);
+      });
+    }
+
+    // 호버 미리보기 (legacy — null 일 가능성 높음)
     if (snapshot.editHoverGhost) {
       const { cells, kind, valid } = snapshot.editHoverGhost;
       const alpha = valid ? 0.5 : 0.25;
@@ -549,27 +566,9 @@ export class Renderer {
 
   private renderEditorToolbar(snapshot: GameSnapshot, toolbarY: number): void {
     this.editRotateButton = null;
-    const screen = this.screenRect();
-    // 큰 ROTATE 버튼만 가운데 — 피스 종류는 큐에서 강제, 사용자 결정 = 컬럼 + 회전
-    const rotateSize = 56;
-    const rotateX = screen.x + (screen.width - rotateSize) / 2;
-    const rotateY = toolbarY;
-    this.editRotateButton = { x: rotateX, y: rotateY, w: rotateSize, h: rotateSize };
-    this.ctx.fillStyle = resolveCssVar(TOKENS.bgPanel);
-    this.ctx.fillRect(rotateX, rotateY, rotateSize, rotateSize);
-    this.pixelStroke(rotateX, rotateY, rotateSize, rotateSize, 2, resolveCssVar(TOKENS.ink));
-    this.ctx.font = `bold 28px sans-serif`;
-    this.ctx.textAlign = "center";
-    this.ctx.textBaseline = "middle";
-    this.ctx.fillStyle = resolveCssVar(TOKENS.ink);
-    this.ctx.fillText("↻", rotateX + rotateSize / 2, rotateY + rotateSize / 2 + 1);
-    // ROTATE 라벨
-    this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
-    this.ctx.fillStyle = resolveCssVar(TOKENS.inkSoft);
-    this.ctx.fillText("ROTATE", rotateX + rotateSize / 2, rotateY + rotateSize + 10);
-    this.ctx.textAlign = "left";
-    this.ctx.textBaseline = "alphabetic";
-    void snapshot;
+    // 에디터 모드 D-pad — Planning 의 renderControlButtons 와 동일 5-button 구조
+    // (left/rotate/right/down/hardDrop) 단, controlButtons 배열을 공유 — input.ts 가 같은 핸들러로 처리
+    this.renderControlButtons(snapshot, toolbarY);
   }
 
   private renderToast(snapshot: GameSnapshot, now: number): void {

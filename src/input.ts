@@ -116,7 +116,7 @@ export class InputController {
       }
     } else if (mode === "editing") {
       if (isTap) {
-        // 우선순위: FINISH > ROTATE > 보드 셀(=컬럼 drop)
+        // 우선순위: FINISH > D-pad 버튼 (planning 과 공유)
         if (this.renderer.isFinishButton(event.clientX, event.clientY)) {
           const status = this.game.snapshot.editStatus;
           if (status === "ready") {
@@ -124,15 +124,18 @@ export class InputController {
           } else if (status !== "generating") {
             this.game.generateEditedPuzzle();
           }
-        } else if (this.renderer.isEditRotateButton(event.clientX, event.clientY)) {
-          this.game.rotateEditTool();
         } else {
-          const cell = this.renderer.screenToCell(event.clientX, event.clientY);
-          if (cell) this.game.editPlaceAt(cell.col, cell.row);
+          const action = this.renderer.screenToControl(event.clientX, event.clientY);
+          if (action) {
+            switch (action) {
+              case "left": this.game.editMoveCurrent(-1); break;
+              case "right": this.game.editMoveCurrent(1); break;
+              case "rotate": this.game.editRotateCurrent(); break;
+              case "down": this.game.editSoftDrop(); break;
+              case "hardDrop": this.game.editHardDrop(); break;
+            }
+          }
         }
-      }
-      if (event.pointerType === "touch") {
-        this.game.setEditHoverPos(null);
       }
     } else if (mode === "feed") {
       // 위 스와이프 → 무작위 난이도 셔플 (탭은 startPlanning)
@@ -184,9 +187,15 @@ export class InputController {
       }
       if (event.key === "Escape") this.game.abandon();
     } else if (mode === "editing") {
+      // D-pad 키보드 단축키
+      if (event.key === "ArrowLeft") this.game.editMoveCurrent(-1);
+      if (event.key === "ArrowRight") this.game.editMoveCurrent(1);
+      if (event.key === "ArrowDown") this.game.editSoftDrop();
+      if (event.key === "ArrowUp" || event.key.toLowerCase() === "r") this.game.editRotateCurrent();
+      if (event.key === " ") this.game.editHardDrop();
+      // 큐 길이 / generate / 퍼즐 진입
       if (event.key === "+" || event.key === "=") this.game.setEditQueueLength(1);
       if (event.key === "-" || event.key === "_") this.game.setEditQueueLength(-1);
-      if (event.key.toLowerCase() === "r") this.game.rotateEditTool();
       if (event.key.toLowerCase() === "g" && this.game.snapshot.editStatus !== "generating") {
         this.game.generateEditedPuzzle();
       }
