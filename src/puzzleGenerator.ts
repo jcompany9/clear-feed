@@ -419,13 +419,15 @@ function adjustQueueForMath(grid: Cell[][], queue: PieceKind[], originalLimit: n
     // 안전장치 — 짝수 보정 후엔 거의 도달 불가 (cells가 0인 경우 등)
     return { queue, length: originalLimit };
   }
-  // 큐 길이는 가장 긴 후보 (≤ 7) 선호 — 사고 깊이 ↑ 로 난이도 강화.
-  // 7 이상은 솔버 검증 시간 폭증 + 사용자 인내 한계 → 상한.
-  const cap = 7;
-  const eligible = candidates.filter((c) => c <= cap);
-  const pool = eligible.length > 0 ? eligible : candidates;
-  const best = pool[pool.length - 1];
-  void originalLimit;
+  // originalLimit (EasyPattern 디자인 큐 길이) 과 가장 가까운 q 우선.
+  // 동률이면 큰 q 선호 — 같은 풀이 가능성에서 살짝 긴 큐로 다양성 ↑.
+  // (cap 7 로 큰 q 강제하면 EasyPattern 디자인 풀이가 깨져 매번 안전 폴백 으로 떨어짐 — 보드가 단조로워짐.)
+  let best = candidates[0];
+  for (const c of candidates) {
+    const d = Math.abs(c - originalLimit);
+    const dBest = Math.abs(best - originalLimit);
+    if (d < dBest || (d === dBest && c > best)) best = c;
+  }
   // 큐 길이를 best로 맞춤 (자르거나 늘림)
   const adjusted = [...queue];
   if (adjusted.length > best) {
@@ -715,6 +717,86 @@ function emptyGrid(): Cell[][] {
 
 function randomBlock(rng: Rng): Cell {
   return rng.pick(["I", "O", "T", "L", "J", "S", "Z"] as PieceKind[]);
+}
+
+/**
+ * 중력 무시 — piece 모양을 보드 임의 위치 (kind, rotation, x, y) 에 박음.
+ * 공중에 떠있는 셀이 있을 수 있음 (자유로운 보드 모양 → 다양성 ↑).
+ * 솔버로 perfect-clear 큐 검색 (게임 로직: 큐 piece 가 떨어지며 라인 클리어 시
+ * 위 공중 셀도 한 칸씩 낙하 — 정상 테트리스 동작).
+ */
+export function buildRandomFloatingBoardPuzzle(seed: number): Puzzle | null {
+  const rng = createRng(seed);
+  const grid = emptyGrid();
+
+  const placeCount = rng.int(3, 12);  // piece 모양 개수 자유롭게 — 풀이 가능성은 솔버 검증으로
+  for (let i = 0; i < placeCount; i += 1) {
+    const kind = rng.pick(PIECES);
+    const rotation = rng.int(0, 3);
+    const col = rng.int(0, COLS - 1);
+    const row = rng.int(10, 17);
+    placePieceFreely(grid, kind, rotation, col, row);
+  }
+  // 공중 셀을 column 별로 바닥에 settle — perfect-clear 풀이 가능성 확보.
+  // (셀 색은 그대로 유지 → piece 모양 다양성은 살아있음)
+  settleColumnsToBottom(grid);
+
+  const cells = countNonWallCells(grid);
+  if (cells === 0) return null;
+
+  const lengths: number[] = [];
+  for (let q = 1; q <= 10; q += 1) {
+    if ((cells + q * 4) % 10 === 0) lengths.push(q);
+  }
+  if (lengths.length === 0) return null;
+
+  for (const q of lengths) {
+    const found = findSolvableQueue(grid, q, 15, () => rng.next(), 30000, 0);
+    if (found) {
+      return {
+        seed,
+        template: "near-line",
+        difficulty: "Normal",
+        grid,
+        queue: found.queue,
+        targetLines: 0,
+        movesLimit: found.queue.length,
+      };
+    }
+  }
+  return null;
+}
+
+/** column 별로 채워진 셀을 바닥부터 누적 — 공중 셀 제거 (셀 색은 보존). */
+function settleColumnsToBottom(grid: Cell[][]): void {
+  for (let x = 0; x < COLS; x += 1) {
+    const stack: Cell[] = [];
+    for (let y = 0; y < ROWS; y += 1) {
+      if (grid[y][x] !== null) stack.push(grid[y][x]);
+    }
+    for (let y = 0; y < ROWS; y += 1) {
+      const fromBottom = ROWS - 1 - y;
+      const idx = stack.length - 1 - y;
+      grid[fromBottom][x] = idx >= 0 ? stack[idx] : null;
+    }
+  }
+}
+
+/** 중력 무시 — piece 를 (col, row) 위치에 그대로 박음. 충돌하면 무시. */
+function placePieceFreely(grid: Cell[][], kind: PieceKind, rotation: number, col: number, row: number): void {
+  let piece: Piece = createPiece(kind);
+  for (let r = 0; r < rotation % 4; r += 1) piece = rotatePiece(piece);
+  const minRelX = Math.min(...piece.cells.map((c) => c.x));
+  const maxRelX = Math.max(...piece.cells.map((c) => c.x));
+  const minRelY = Math.min(...piece.cells.map((c) => c.y));
+  const maxRelY = Math.max(...piece.cells.map((c) => c.y));
+  const safeCol = Math.max(-minRelX, Math.min(COLS - 1 - maxRelX, col));
+  const safeRow = Math.max(-minRelY, Math.min(ROWS - 1 - maxRelY, row));
+  piece = { ...piece, x: safeCol, y: safeRow };
+  if (!canPlacePiece(grid, piece)) return;
+  for (const c of absoluteCells(piece)) {
+    if (c.y >= 0 && c.y < ROWS && c.x >= 0 && c.x < COLS) grid[c.y][c.x] = kind;
+  }
 }
 
 /**
