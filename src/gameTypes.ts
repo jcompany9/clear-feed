@@ -46,6 +46,7 @@ export interface AnimationState {
   feedSlide: number;
   feedSlideX: number;
   feedShake: number;
+  editShake: number;  // 에디터 거부 시 보드 흔들기
   touchTrail: Array<{ x: number; y: number }>;  // 터치 드래그 궤적 (화면 좌표)
   previousPuzzle?: Puzzle;
   previousGrid?: Cell[][];
@@ -78,4 +79,8 @@ export interface GameSnapshot {
   editToolRotation: number;          // 피스 도구의 회전 (0~3)
   editFeasibleLengths: number[];     // 현재 보드에서 수학적으로 풀이 가능한 큐 길이 (1~10 범위)
   editHoverGhost: { cells: Point[]; kind: PieceKind | "cell"; valid: boolean } | null;  // 호버 미리보기
+  // Editor "real-tetris" 모드: 무작위 큐 + drop placement, 라인 클리어 발생 시 거부
+  editPieceQueue: PieceKind[];       // 다음 피스 큐 (5개 이상 유지)
+  editSolutionEstimate: number;      // 현재 보드에서 풀이 가능한 큐 추정 개수 (마지막 분석 결과)
+  editAnalyzing: boolean;            // 분석 진행 중
 }

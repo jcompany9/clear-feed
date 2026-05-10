@@ -58,6 +58,9 @@ export class Game {
   private editQueueLength = 5;
   private editFoundQueue: PieceKind[] | null = null;
   private editStatus: "idle" | "generating" | "ready" | "no-solution" = "idle";
+  private editPieceQueue: PieceKind[] = [];
+  private editSolutionEstimate = 0;
+  private editAnalyzing = false;
   private editTool: "cell" | PieceKind = "cell";
   private editToolRotation = 0;
   private editHoverPos: { col: number; row: number } | null = null;
@@ -78,6 +81,7 @@ export class Game {
     feedSlide: 0,
     feedSlideX: 0,
     feedShake: 0,
+    editShake: 0,
     touchTrail: [],
   };
 
@@ -124,6 +128,9 @@ export class Game {
       editQueueLength: this.editQueueLength,
       editFoundQueue: this.editFoundQueue ? [...this.editFoundQueue] : null,
       editStatus: this.editStatus,
+      editPieceQueue: [...this.editPieceQueue],
+      editSolutionEstimate: this.editSolutionEstimate,
+      editAnalyzing: this.editAnalyzing,
       editTool: this.editTool,
       editToolRotation: this.editToolRotation,
       editFeasibleLengths: this.computeFeasibleLengths(),
@@ -189,6 +196,7 @@ export class Game {
     this.animation.feedSlide *= 0.86;
     this.animation.feedSlideX *= 0.86;
     this.animation.feedShake *= 0.78;
+    this.animation.editShake *= 0.82;
     if (Math.abs(this.animation.feedSlide) < 0.015 && Math.abs(this.animation.feedSlideX) < 0.015) {
       this.animation.previousPuzzle = undefined;
       this.animation.previousGrid = undefined;
@@ -528,8 +536,27 @@ export class Game {
     this.editQueueLength = 5;
     this.editFoundQueue = null;
     this.editStatus = "idle";
-    this.editTool = "cell";
+    this.editTool = "I";  // 기본은 첫 큐 피스로 곧 갱신됨
     this.editToolRotation = 0;
+    this.editPieceQueue = [];
+    this.editSolutionEstimate = 0;
+    this.editAnalyzing = false;
+    this.refillEditPieceQueue();
+    if (this.editPieceQueue.length > 0) this.editTool = this.editPieceQueue[0];
+  }
+
+  /** 에디터 큐를 5개 이상으로 보충 (연속 중복 방지) */
+  private refillEditPieceQueue(): void {
+    const all: PieceKind[] = ["I", "O", "T", "L", "J", "S", "Z"];
+    while (this.editPieceQueue.length < 5) {
+      let pick = all[Math.floor(Math.random() * all.length)];
+      const last = this.editPieceQueue[this.editPieceQueue.length - 1];
+      if (last !== undefined && pick === last) {
+        // 한 번 더 뽑아서 중복 회피
+        pick = all[Math.floor(Math.random() * all.length)];
+      }
+      this.editPieceQueue.push(pick);
+    }
   }
 
   setEditTool(tool: "cell" | PieceKind): void {
@@ -546,30 +573,95 @@ export class Game {
     this.sound.play("rotate");
   }
 
-  /** 현재 선택된 도구로 (col, row)에 작용.
-   *  - cell 도구: (col, row) 토글
-   *  - piece 도구: drop-from-top — col 만 사용, 위에서 떨어져 닿는 위치에 잠금 (실제 테트리스) */
+  /** 에디터 배치 — 실제 테트리스 모드:
+   *  큐의 현재 피스를 col 컬럼에 떨어뜨림. 라인이 클리어되면 거부 (퍼즐 초기 상태에 부적합).
+   *  cell 도구는 legacy 토글 유지 (수동 미세 조정). */
   editPlaceAt(col: number, row: number): void {
     if (this.mode !== "editing") return;
     if (this.editTool === "cell") {
       this.editToggleCell(col, row);
       return;
     }
-    // 피스 도구: drop-from-top
+    // 큐의 현재 피스로 강제 (사용자가 임의 선택 못 함)
+    const currentPiece = this.editPieceQueue[0];
+    if (!currentPiece) return;
+    if (this.editTool !== currentPiece) {
+      this.editTool = currentPiece;  // 동기화
+      this.editToolRotation = 0;
+    }
     const landed = this.computeEditDrop(col);
     if (!landed) {
-      this.flashToast("BLOCKED");
+      this.flashToast("BLOCKED — TRY ANOTHER COLUMN");
+      this.animation.editShake = 1;
+      this.sound.play("fail");
       return;
     }
     const cells = absoluteCells(landed);
+    // 시뮬레이션: 가상으로 배치 후 라인 클리어 발생 여부 검사
+    const wouldClear = this.simulateLineClearAfterPlace(cells);
+    if (wouldClear) {
+      this.flashToast("LINE CLEAR — INVALID FOR PUZZLE");
+      this.animation.editShake = 1;
+      this.sound.play("fail");
+      return;
+    }
+    // OK — 실제 배치
     for (const cell of cells) {
       if (cell.y >= 0 && cell.y < ROWS && cell.x >= 0 && cell.x < COLS) {
-        this.editGrid[cell.y][cell.x] = this.editTool as Cell;
+        this.editGrid[cell.y][cell.x] = currentPiece as Cell;
       }
     }
+    // 큐 진행 + 보충
+    this.editPieceQueue.shift();
+    this.refillEditPieceQueue();
+    this.editTool = this.editPieceQueue[0] ?? "I";
+    this.editToolRotation = 0;
     this.editFoundQueue = null;
     this.editStatus = "idle";
     this.sound.play("land");
+    // 비동기 분석 (셀이 충분할 때만 — 비싼 작업)
+    this.runEditAnalysisAsync();
+  }
+
+  private simulateLineClearAfterPlace(cells: Point[]): boolean {
+    // 배치하면 가득 차는 행이 있는지만 검사
+    const affected = new Set<number>();
+    for (const c of cells) {
+      if (c.y >= 0 && c.y < ROWS) affected.add(c.y);
+    }
+    for (const y of affected) {
+      let full = true;
+      for (let x = 0; x < COLS; x += 1) {
+        const filled = this.editGrid[y][x] !== null || cells.some((c) => c.x === x && c.y === y);
+        if (!filled) { full = false; break; }
+      }
+      if (full) return true;
+    }
+    return false;
+  }
+
+  /** 배치 후 비동기로 풀이 가능한 큐 개수 추정.
+   *  너무 자주 호출되지 않도록 셀 수 < 6 일 때는 스킵. */
+  private runEditAnalysisAsync(): void {
+    const cellCount = this.countEditCells();
+    if (cellCount < 6) {
+      this.editSolutionEstimate = 0;
+      return;
+    }
+    // 동기 실행 (작은 budget) — UX 끊김 최소화
+    this.editAnalyzing = true;
+    setTimeout(() => {
+      const feasible = this.computeFeasibleLengths();
+      let solutionsFound = 0;
+      // 가장 짧은 가능 큐 길이로 시도
+      const length = feasible[0];
+      if (length !== undefined) {
+        const found = findSolvableQueue(this.editGrid, length, 8, Math.random, 25000, 0);
+        if (found) solutionsFound = 1;  // 1개 이상 존재 — 추후 다중 분석 가능
+      }
+      this.editSolutionEstimate = solutionsFound;
+      this.editAnalyzing = false;
+    }, 0);
   }
 
   /** 편집 보드에서 현재 도구(piece)를 col 컬럼에 떨어뜨릴 때 안착 위치 반환.

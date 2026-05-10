@@ -427,9 +427,21 @@ export class Renderer {
     this.boardOy = oy;
     this.boardCell = cell;
 
-    // 보드 배경 (크림)
+    // editShake — 거부 시 보드 좌우 흔들기
+    const shakeAmount = snapshot.animation.editShake;
+    const shakeX = shakeAmount > 0.02 ? Math.sin(performance.now() * 0.06) * shakeAmount * 8 : 0;
+    if (shakeX !== 0) this.ctx.save();
+    if (shakeX !== 0) this.ctx.translate(shakeX, 0);
+
+    // 보드 배경 (크림) — 거부 중이면 빨간 틴트
     this.ctx.fillStyle = resolveCssVar(TOKENS.bgBoard);
     this.ctx.fillRect(ox, oy, boardW, boardH);
+    if (shakeAmount > 0.1) {
+      this.ctx.fillStyle = resolveCssVar(TOKENS.danger);
+      this.ctx.globalAlpha = shakeAmount * 0.25;
+      this.ctx.fillRect(ox, oy, boardW, boardH);
+      this.ctx.globalAlpha = 1;
+    }
 
     // 그리드 (편집 모드에서는 더 진하게 — 셀 경계 명확)
     this.ctx.strokeStyle = "rgba(26, 26, 46, 0.18)";
@@ -486,8 +498,75 @@ export class Renderer {
     // 외곽선
     this.pixelStroke(ox, oy, boardW, boardH, 3, resolveCssVar(TOKENS.ink));
 
+    if (shakeX !== 0) this.ctx.restore();
+
+    // 보드 우측에 piece 큐 미니 표시 (next 3)
+    this.renderEditorQueue(snapshot, ox + boardW + 8, oy);
+
+    // 분석 결과 — 보드 위에
+    this.renderEditorAnalysis(snapshot, ox, oy - 22, boardW);
+
     // 툴바 — 보드 바로 아래
     this.renderEditorToolbar(snapshot, oy + boardH + 10);
+  }
+
+  private renderEditorQueue(snapshot: GameSnapshot, x: number, y: number): void {
+    const queue = snapshot.editPieceQueue.slice(0, 3);
+    if (queue.length === 0) return;
+    const slotSize = 28;
+    const gap = 4;
+    this.ctx.save();
+    this.ctx.font = `8px ${FONT_PIXEL_BASE}`;
+    this.ctx.fillStyle = resolveCssVar(TOKENS.inkSoft);
+    this.ctx.textAlign = "left";
+    this.ctx.textBaseline = "alphabetic";
+    this.ctx.fillText("NEXT", x, y - 4);
+    queue.forEach((kind, i) => {
+      const sy = y + i * (slotSize + gap);
+      this.ctx.fillStyle = resolveCssVar(i === 0 ? TOKENS.bgPanel : TOKENS.bgScreen);
+      this.ctx.fillRect(x, sy, slotSize, slotSize);
+      this.pixelStroke(x, sy, slotSize, slotSize, i === 0 ? 2 : 1, resolveCssVar(i === 0 ? TOKENS.accent : TOKENS.ink));
+      // 미니 piece
+      const piece = createPiece(kind);
+      const cells = piece.cells;
+      const minX = Math.min(...cells.map((c) => c.x));
+      const maxX = Math.max(...cells.map((c) => c.x));
+      const minY = Math.min(...cells.map((c) => c.y));
+      const maxY = Math.max(...cells.map((c) => c.y));
+      const w = maxX - minX + 1;
+      const h = maxY - minY + 1;
+      const mini = Math.floor(Math.min((slotSize - 6) / w, (slotSize - 6) / h));
+      const offX = x + (slotSize - w * mini) / 2;
+      const offY = sy + (slotSize - h * mini) / 2;
+      const colors = PIECE_COLORS[kind];
+      cells.forEach((c) => {
+        this.ctx.fillStyle = resolveCssVar(colors.fill);
+        this.ctx.fillRect(offX + (c.x - minX) * mini, offY + (c.y - minY) * mini, mini, mini);
+      });
+    });
+    this.ctx.restore();
+    this.ctx.textAlign = "left";
+    this.ctx.textBaseline = "alphabetic";
+  }
+
+  private renderEditorAnalysis(snapshot: GameSnapshot, x: number, y: number, w: number): void {
+    const cells = snapshot.editGrid.flat().filter((c) => c !== null).length;
+    const sol = snapshot.editSolutionEstimate;
+    const analyzing = snapshot.editAnalyzing;
+    let label: string;
+    if (cells < 6) label = `${cells} CELLS — KEEP STACKING`;
+    else if (analyzing) label = `${cells} CELLS — ANALYZING…`;
+    else if (sol > 0) label = `${cells} CELLS — SOLVABLE ✓`;
+    else label = `${cells} CELLS — NO SOLUTION FOUND`;
+    this.ctx.save();
+    this.ctx.font = `9px ${FONT_PIXEL_BASE}`;
+    this.ctx.textAlign = "left";
+    this.ctx.fillStyle = resolveCssVar(
+      cells < 6 ? TOKENS.inkSoft : sol > 0 ? TOKENS.success : TOKENS.warning,
+    );
+    this.ctx.fillText(label, x, y + 12);
+    this.ctx.restore();
+    void w;
   }
 
   private renderEditorToolbar(snapshot: GameSnapshot, toolbarY: number): void {
