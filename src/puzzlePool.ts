@@ -4,7 +4,7 @@
  */
 import type { Puzzle } from "./gameTypes";
 
-const TARGET_SIZE = 12;     // 풀에 유지할 퍼즐 수
+const TARGET_SIZE = 8;      // 풀 크기 (chaos 생성 무거우니 적당히)
 const MAX_INFLIGHT = 2;     // 동시 생성 요청 한도 (워커 1개 + 큐)
 
 export class PuzzlePool {

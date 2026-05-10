@@ -15,7 +15,7 @@ let lastTemplate: TemplateName | null = null;
 let lastDifficulty: Difficulty | null = null;
 let difficultyRun = 0;
 
-export function createFeedPuzzle(seed: number, challenge = false): Puzzle {
+export function createFeedPuzzle(seed: number, challenge = false, fast = false): Puzzle {
   const rng = createRng(seed);
 
   // Challenge: random + 유일해 필터, 실패 시 Normal constructed 폴백.
@@ -27,9 +27,10 @@ export function createFeedPuzzle(seed: number, challenge = false): Puzzle {
     return buildConstructedNormal(seed, rng);
   }
 
-  // 95% random + 유일해 필터. 5 회 시도 — Worker 풀이 백그라운드로 채워주므로 시간 비용 OK.
-  if (!SKIP_SOLVER_VERIFY && rng.next() < 0.95) {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
+  // fast 모드 (initial feed) — random/chaos 스킵, 즉시 constructed 반환.
+  // 95% random + 유일해 필터. 3 회 시도 — chaos grid 가 무거우므로 retries 줄임.
+  if (!fast && !SKIP_SOLVER_VERIFY && rng.next() < 0.95) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
       const built = buildOnePuzzle(seed, false, rng);
       if (built.verified) return built.puzzle;
     }
@@ -341,9 +342,9 @@ function ensureSolvable(
     targetLines,
     movesLimit: length,
   };
-  // 예산: 평균 gen ~300ms 목표.
-  if (solve(probe, 18000).solvable) return queue;
-  const found = findSolvableQueue(grid, length, 8, () => rng.next(), 20000, targetLines);
+  // Budget ↑ — chaos grid 검증에 더 많은 노드 필요. Worker pool 이 비용 흡수.
+  if (solve(probe, 50000).solvable) return queue;
+  const found = findSolvableQueue(grid, length, 12, () => rng.next(), 50000, targetLines);
   return found ? found.queue : null;
 }
 
@@ -390,7 +391,8 @@ function adjustQueueForMath(grid: Cell[][], queue: PieceKind[], originalLimit: n
 }
 
 export function createInitialFeed(count: number, seed: number): Puzzle[] {
-  return Array.from({ length: count }, (_, index) => createFeedPuzzle(seed + index * 101));
+  // fast=true → constructed only, 즉시 반환. Worker pool 이 chaos 퍼즐을 백그라운드로 채움.
+  return Array.from({ length: count }, (_, index) => createFeedPuzzle(seed + index * 101, false, true));
 }
 
 function chooseDifficulty(rng: Rng, challenge: boolean): Difficulty {
@@ -538,10 +540,57 @@ type GridBuilder = (
  */
 function pickGridBuilder(rng: Rng): GridBuilder {
   const r = rng.next();
-  if (r < 0.4) return buildGrid;                  // 40% — 기본 (random density)
-  if (r < 0.65) return buildGridMultiRegion;      // 25% — 좌/우 분리
-  if (r < 0.85) return buildGridMixedGapWidths;   // 20% — 행별 gap 변화
-  return buildGridTallWell;                        // 15% — 깊은 우물
+  if (r < 0.5) return buildGridChaos;             // 50% — 카오스 (모든 feature 동시)
+  if (r < 0.7) return buildGridMultiRegion;       // 20% — 좌/우 분리
+  if (r < 0.85) return buildGridMixedGapWidths;   // 15% — 행별 gap 변화
+  if (r < 0.95) return buildGridTallWell;         // 10% — 깊은 우물
+  return buildGrid;                                // 5% — 기본
+}
+
+/**
+ * CHAOS — 모든 feature 동시 적용. 시각적으로 압도적.
+ * 12행 빽빽 density + 1-2 우물 + 4-6 pillars + 가운데 통로 (확률).
+ * 솔버는 이 카오스에서 풀이 가능한 큐를 찾아냄 (또는 거부 → 재시도).
+ */
+function buildGridChaos(rng: Rng, template: TemplateName, targetLines: number, difficulty: Difficulty, opener: PieceKind): Cell[][] {
+  const grid = emptyGrid();
+  const startRow = difficulty === "Easy" ? 10 : difficulty === "Normal" ? 9 : 8;
+  // 빽빽한 density (위→아래 그라데이션)
+  for (let y = startRow; y < 20; y += 1) {
+    const t = (y - startRow) / Math.max(1, 19 - startRow);
+    const density = 0.45 + 0.35 * t;  // 0.45 → 0.8
+    for (let x = 0; x < COLS; x += 1) {
+      grid[y][x] = rng.next() < density ? randomBlock(rng) : null;
+    }
+  }
+  // 1-2 우물 (수직 빈 칸)
+  const numWells = rng.int(1, 2);
+  for (let i = 0; i < numWells; i += 1) {
+    const wellCol = rng.int(0, COLS - 1);
+    const wellTop = rng.int(startRow, 15);
+    for (let y = wellTop; y < 20; y += 1) {
+      grid[y][wellCol] = null;
+    }
+  }
+  // 3-5 pillars (수직 추가 셀)
+  const numPillars = rng.int(3, 5);
+  for (let i = 0; i < numPillars; i += 1) {
+    const px = rng.int(0, COLS - 1);
+    const pTop = rng.int(startRow, 14);
+    const pHeight = rng.int(2, 4);
+    for (let py = pTop; py < pTop + pHeight && py < 20; py += 1) {
+      grid[py][px] = randomBlock(rng);
+    }
+  }
+  // 30% 확률로 가운데 통로 (multi-region 효과)
+  if (rng.next() < 0.3) {
+    const middleCol = rng.int(3, 6);
+    for (let y = startRow; y < 20; y += 1) {
+      grid[y][middleCol] = null;
+    }
+  }
+  void template; void targetLines; void opener;
+  return grid;
 }
 
 /** 좌/우 두 영역 + 가운데 빈 통로 — 각 영역이 따로 클리어돼야 함 */
