@@ -725,22 +725,25 @@ export class Game {
       return;
     }
 
-    // 수학적 사전 검증: (cellCount + queue*4)가 10의 배수여야 함 (모든 셀이 라인 클리어로 사라질 수 있음)
+    // 수학적 검증 — 안 맞으면 자동으로 가장 가까운 유효 q 로 보정.
     const total = cellCount + this.editQueueLength * 4;
     if (total % 10 !== 0) {
       const valid = this.computeFeasibleLengths();
-      this.editFoundQueue = null;
-      this.editStatus = "no-solution";
       if (valid.length === 0) {
-        // cellCount가 홀수이거나 너무 큰 경우 — 어떤 q로도 안 됨 (1~10 범위)
+        // cellCount 홀수 등 — 어떤 q 로도 불가
+        this.editFoundQueue = null;
+        this.editStatus = "no-solution";
         this.flashToast("ADD/REMOVE 1 CELL");
-      } else if (valid.length === 1) {
-        this.flashToast(`TRY Q=${valid[0]}`);
-      } else {
-        this.flashToast(`TRY Q=${valid.slice(0, 3).join("/")}`);
+        this.sound.play("fail");
+        return;
       }
-      this.sound.play("fail");
-      return;
+      // 사용자 지정 length 와 가장 가까운 유효 q 자동 선택
+      const target = this.editQueueLength;
+      const corrected = valid.reduce((best, q) =>
+        Math.abs(q - target) < Math.abs(best - target) ? q : best,
+      );
+      this.editQueueLength = corrected;
+      this.flashToast(`Q AUTO-SET TO ${corrected}`);
     }
 
     this.editStatus = "generating";

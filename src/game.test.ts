@@ -531,10 +531,10 @@ describe("Editor — setEditQueueLength", () => {
 describe("Editor — generateEditedPuzzle", () => {
   beforeEach(() => localStorage.clear());
 
-  it("rejects mathematically infeasible queue length with 'TRY Q=' toast", () => {
+  it("auto-corrects queue length when math infeasible (16 cells → q snaps to nearest valid)", () => {
     const game = makeGame();
     game.enterEditor();
-    // 16 cells via cell-toggle (test helper) — queue=5 → 16+20=36, not divisible by 10
+    // 16 cells via cell-toggle — queue=5 → 16+20=36, math 안 맞음 → q 자동 보정
     for (let i = 0; i < 16; i += 1) {
       const x = i % 8;
       const y = 19 - Math.floor(i / 8);
@@ -543,9 +543,10 @@ describe("Editor — generateEditedPuzzle", () => {
     expect(game.snapshot.editGrid.flat().filter((c) => c !== null).length).toBe(16);
     expect(game.snapshot.editQueueLength).toBe(5);
     game.generateEditedPuzzle();
-    expect(game.snapshot.editStatus).toBe("no-solution");
-    expect(game.snapshot.animation.toast).toMatch(/TRY Q=/);
-  });
+    // q=5 (16+20=36, %10!=0) → valid={1,6} → closest to 5 = 6 → 자동 보정
+    expect(game.snapshot.editQueueLength).toBe(6);
+    // (solver 는 백그라운드 진행 — q 값만 검증)
+  }, 90000);  // 솔버 sync 호출 무거우니 90s timeout
 
   it("editFeasibleLengths reflects (cellCount + 4*q) % 10 === 0", () => {
     const game = makeGame();
